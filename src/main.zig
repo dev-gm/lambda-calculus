@@ -49,9 +49,10 @@ const LexToken = union(enum) {
                     }
                 },
                 ' ' | '\t' => continue,
-                else =>
+                else => {
                     if (text_start == null)
-                        text_start = index,
+                        text_start = index;
+                }
             }
         }
         return tokens;
@@ -66,6 +67,7 @@ const Expr = union(enum) {
     application: .{Expr, Expr},
 
     fn parseTokens(tokens: ArrayList(LexToken)) ExprParseError!Expr {
+        _ = tokens;
         // TODO
         return Expr{ .variable = "var" };
     }
@@ -90,7 +92,7 @@ const Cmd = union(enum) {
                     if (char != ' ' and char != '\t')
                         break index;
                 };
-                break switch (string[0]) {
+                return switch (string[0]) {
                     'r' => Cmd{ .read = string[1+start_index] },
                     'w' => Cmd{ .write = string[1+start_index] },
                     else => unreachable,
