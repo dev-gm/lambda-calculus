@@ -59,12 +59,17 @@ const LexToken = union(enum) {
     }
 };
 
-// {lambda}{var: text}{dot}{body: ..} => abstraction($var, PARSE($body))
-// {func: abstraction}{rest: ..} => application($func, PARSE($rest))
+// {} => EmptyExpr
+// {body: group} => PARSE($body)
+// {body: group}{rest: ..} => application(PARSE($body), PARSE($rest))
+// {var: text} => variable($var)
+// {var: text}{rest: ..} => application($var, PARSE($rest))
+// {lambda}{arg: text}{dot}{rest: ..} => abstraction($arg, PARSE($rest))
+// else => SyntaxError
 
 const ExprParseError = error{
-    ExprEmpty,
-    InvalidAbstraction,
+    EmptyExpr,
+    SyntaxError,
 };
 
 const Expr = union(enum) {
@@ -75,18 +80,31 @@ const Expr = union(enum) {
     fn parseTokens(tokens: ArrayList(LexToken)) ExprParseError!Expr {
         const tokens_len = tokens.len();
         if (tokens_len == 0) {
-            return ExprParseError.ExprEmpty;
+            return ExprParseError.EmptyExpr;
         }
         switch (tokens[0]) {
             LexToken.group => {
-                const group_expr = Expr.parseTokens(tokens[0].group);
+                const group_expr = try Expr.parseTokens(tokens[0].group);
                 if (tokens_len == 1) {
                     return group_expr;
                 } else {
                     return Expr{
                         .application = .{
                             group_expr,
-                            Expr.parseTokens(tokens[1..]),
+                            try Expr.parseTokens(tokens[1..]),
+                        },
+                    };
+                }
+            },
+            LexToken.text => {
+                const variable_expr = Expr{ .variable = tokens[0].text };
+                if (tokens_len == 1) {
+                    return variable_expr;
+                } else {
+                    return Expr{
+                        .application = .{
+                            variable_expr,
+                            try Expr.parseTokens(tokens[1..]),
                         },
                     };
                 }
@@ -97,28 +115,16 @@ const Expr = union(enum) {
                     @tagName(tokens[1]) != "text" or
                     @tagName(tokens[2]) != "dot"
                 ) {
-                    return ExprParseError.InvalidAbstraction;
+                    return ExprParseError.SyntaxError;
                 }
-                return Expr{
+                return try Expr{
                     .abstraction = .{
                         tokens[1].text,
-                        Expr.parseTokens(tokens[3..]),
+                        try Expr.parseTokens(tokens[3..]),
                     },
                 };
             },
-            LexToken.text => {
-                const variable_expr = Expr{ .variable = tokens[0].text };
-                if (tokens_len == 1) {
-                    return variable_expr;
-                } else {
-                    return Expr{
-                        .application = .{
-                            variable_expr,
-                            Expr.parseTokens(tokens[1..]),
-                        },
-                    };
-                }
-            }
+            else => return SyntaxError,
         }
     }
 };
