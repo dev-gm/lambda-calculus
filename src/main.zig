@@ -110,14 +110,14 @@ const FullExpr = union(enum) {
         } else if (@tagName(tokens[0]) == "dot") {
             break try Cmd.parseStr(tokens[1].text);
         } else if (
-            tokens.len() > 2 &&
-            @tagName(tokens[0]) == "text" &&
-            @tagName(tokens[1]) == "equals"
+            (tokens.len() > 2) &&
+            (@tagName(tokens[0]) == "text") &&
+            (@tagName(tokens[1]) == "equals")
         ) {
             break try Expr.parseStr(tokens[2..]);
         } else {
             break try Expr.parseStr(tokens);
-        }
+        };
     }
 };
 
