@@ -1,6 +1,6 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
-const general_allocator = std.allocator.general_allocator;
+const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 
 const LexToken = union(enum) {
     group: ArrayList(LexToken),
@@ -10,11 +10,20 @@ const LexToken = union(enum) {
     equals,
 
     pub fn parseStr(string: []const u8) !ArrayList(LexToken) {
-        return try parseSubStr(string)[0];
+        return (try parseSubStr(string, false)).tokens;
     }
 
-    fn parseSubStr(string: []const u8) !.{ArrayList(LexToken), usize} {
-        var tokens = try ArrayList(LexToken).init(general_allocator);
+    const subStrReturnType: type = struct {
+        tokens: ArrayList(LexToken),
+        index: usize,
+    };
+
+    fn subStrReturn(tokens: ArrayList(LexToken), index: usize) subStrReturnType {
+        return subStrReturnType { .tokens = tokens, .index = index };
+    }
+
+    fn parseSubStr(string: []const u8, is_inner: bool) !subStrReturnType {
+        var tokens = try ArrayList(LexToken).init(GeneralPurposeAllocator({}).init());
         var text_start: ?usize = null;
         var skip_until: ?usize = null;
         parse: for (string) |char, index| {
@@ -31,17 +40,17 @@ const LexToken = union(enum) {
                     }
                     switch (char) {
                         '(' => {
-                            const result = try LexToken.parseSubStr(string[index+1..]);
-                            try tokens.append(LexToken{ .group = result[0] });
-                            skip_until = result[1];
+                            const result = try LexToken.parseSubStr(string[index+1..], true);
+                            try tokens.append(LexToken{ .group = result.tokens });
+                            skip_until = result.index;
                         },
-                        ')' => return tokens,
+                        ')' => return subStrReturn(tokens, index),
                         '\\' => try tokens.append(LexToken.lambda),
                         '.' => {
                             try tokens.append(LexToken.dot);
-                            if (tokens.len() == 1) {
+                            if (tokens.len() == 0 and !is_inner) {
                                 try tokens.append(LexToken{ .text = string[index+1..] });
-                                return tokens;
+                                return subStrReturn(tokens, index);
                             }
                         },
                         '=' => try tokens.append(LexToken.equals),
@@ -55,7 +64,7 @@ const LexToken = union(enum) {
                 }
             }
         }
-        return tokens;
+        return subStrReturn(tokens, 0);
     }
 };
 
@@ -202,10 +211,11 @@ pub fn main() !void {
     const stdin = std.io.getStdIn();
     defer stdin.close();
     var buffer: [INPUT_BUF_SIZE]u8 = undefined;
-    var line = undefined;
+    var line: ?[]u8 = undefined;
     var reader = stdin.reader();
-    main: while (true): (reader.readUntilDelimiterOrEof(&buffer, '\n')) {
-        const tokens = try LexToken.parseStr(buffer[0..line]);
+    main: while (true) {
+        line = reader.readUntilDelimiterOrEof(&buffer, '\n') catch continue :main;
+        const tokens = try LexToken.parseStr(line.?);
         defer {
             for (tokens) |token| {
                 if (@tagName(token) == "group") {
@@ -217,9 +227,21 @@ pub fn main() !void {
         const full_expr = try FullExpr.parseLexTokens(tokens);
         defer full_expr.free();
         switch (full_expr) {
-            FullExpr.expression => |*expression| {},
-            FullExpr.command => |*command| {},
-            FullExpr.assign => |*assign| {},
+            FullExpr.expression => |*expression| {
+                std.debug.log("EXPRESSION", .{});
+                _ = expression;
+            },
+            FullExpr.command => |*command| {
+                switch (command.*) {
+                    Cmd.quit => break :main,
+                    Cmd.help => std.debug.log("HELP", .{}),
+                    Cmd.read => |*read| std.debug.log("READ: {s}", .{read.*}),
+                    Cmd.write => |*write| std.debug.log("READ: {s}", .{write.*}),
+                }
+            },
+            FullExpr.assign => |*assign| {
+                std.debug.log("ASSIGN {s}", .{assign.*[0]});
+            },
             else => continue :main,
         }
     }
