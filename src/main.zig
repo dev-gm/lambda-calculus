@@ -105,10 +105,18 @@ const FullExpr = union(enum) {
     empty,
 
     fn parseLexTokens(tokens: ArrayList(LexToken)) FullExprParseError!FullExpr {
-        if (tokens.len() == 0)
-            return FullExpr.empty;
-        if (@tagName(tokens[0]) == "dot") {
-            return try Cmd.parseStr(tokens[1].text);
+        return if (tokens.len() == 0) {
+            break FullExpr.empty;
+        } else if (@tagName(tokens[0]) == "dot") {
+            break try Cmd.parseStr(tokens[1].text);
+        } else if (
+            tokens.len() > 2 &&
+            @tagName(tokens[0]) == "text" &&
+            @tagName(tokens[1]) == "equals"
+        ) {
+            break try Expr.parseStr(tokens[2..]);
+        } else {
+            break try Expr.parseStr(tokens);
         }
     }
 };
