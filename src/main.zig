@@ -87,7 +87,7 @@ const Cmd = union(enum) {
             'h' => Cmd.help,
             'r' | 'w' => {
                 var start_index = for (string[1..]) |index, char| {
-                    if ((char != ' ') && (char != '\t'))
+                    if (char != ' ' and char != '\t')
                         break index;
                 };
                 break switch (string[0]) {
@@ -113,19 +113,19 @@ const FullExpr = union(enum) {
     empty,
 
     fn parseLexTokens(tokens: ArrayList(LexToken)) FullExprParseError!FullExpr {
-        return if (tokens.len() == 0) {
-            break FullExpr.empty;
+        if (tokens.len() == 0) {
+            return FullExpr.empty;
         } else if (@tagName(tokens[0]) == "dot") {
-            break try Cmd.parseStr(tokens[1].text);
+            return try Cmd.parseStr(tokens[1].text);
         } else if (
-            (tokens.len() > 2) &&
-            (@tagName(tokens[0]) == "text") &&
-            (@tagName(tokens[1]) == "equals")
+            tokens.len() > 2 and
+            @tagName(tokens[0]) == "text" and
+            @tagName(tokens[1]) == "equals"
         ) {
-            break try Expr.parseTokens(tokens[2..]);
+            return try Expr.parseTokens(tokens[2..]);
         } else {
-            break try Expr.parseTokens(tokens);
-        };
+            return try Expr.parseTokens(tokens);
+        }
     }
 };
 
