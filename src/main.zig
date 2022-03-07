@@ -10,7 +10,9 @@ const LexToken = union(enum) {
     equals,
 
     pub fn parseStr(string: []const u8) !ArrayList(LexToken) {
-        return (try parseSubStr(string, false)).tokens;
+        var general_allocator: GeneralPurposeAllocator(.{}) = .{};
+        defer _ = general_allocator.deinit();
+        return (try parseSubStr(string, false, general_allocator.allocator())).tokens;
     }
 
     const subStrReturnType: type = struct {
@@ -22,8 +24,8 @@ const LexToken = union(enum) {
         return subStrReturnType { .tokens = tokens, .index = index };
     }
 
-    fn parseSubStr(string: []const u8, is_inner: bool) !subStrReturnType {
-        var tokens = try ArrayList(LexToken).init(GeneralPurposeAllocator(.{}).allocator());
+    fn parseSubStr(string: []const u8, is_inner: bool, allocator: anytype) anyerror!subStrReturnType {
+        var tokens = ArrayList(LexToken).init(allocator);
         var text_start: ?usize = null;
         var skip_until: ?usize = null;
         parse: for (string) |char, index| {
@@ -33,14 +35,14 @@ const LexToken = union(enum) {
                 continue :parse;
             }
             switch (char) {
-                '(' | ')' | '\\' | '.' | '=' |' ' | '\t' => {
+                '(' | ')' | '\\' | '.' | '=' | ' ' | '\t' => {
                     if (text_start) |*start_index| {
                         try tokens.append(LexToken{ .text = string[start_index.*..] });
                         text_start = null;
                     }
                     switch (char) {
                         '(' => {
-                            const result = try LexToken.parseSubStr(string[index+1..], true);
+                            const result = try LexToken.parseSubStr(string[index+1..], true, allocator);
                             try tokens.append(LexToken{ .group = result.tokens });
                             skip_until = result.index;
                         },
@@ -48,14 +50,15 @@ const LexToken = union(enum) {
                         '\\' => try tokens.append(LexToken.lambda),
                         '.' => {
                             try tokens.append(LexToken.dot);
-                            if (tokens.len() == 0 and !is_inner) {
+                            if (tokens.items.len == 0 and !is_inner) {
                                 try tokens.append(LexToken{ .text = string[index+1..] });
                                 return subStrReturn(tokens, index);
                             }
                         },
                         '=' => try tokens.append(LexToken.equals),
-                        ' ' | '\t' => continue :parse,
-                        else => unreachable
+                        ' ' => continue :parse,
+                        '\t' => continue :parse,
+                        else => unreachable,
                     }
                 },
                 else => {
@@ -82,56 +85,83 @@ const ExprParseError = error{
 };
 
 const Expr = union(enum) {
-    variable: []const u8,
-    abstraction: .{[]const u8, Expr},
-    application: .{Expr, Expr},
+    const Variable = []const u8;
 
-    fn parseTokens(tokens: ArrayList(LexToken)) ExprParseError!Expr {
-        const tokens_len = tokens.len();
-        if (tokens_len == 0) {
+    fn newVariable(variable: Variable) Expr {
+        return Expr{ .variable = variable };
+    }
+
+    const Abstraction = struct {
+        variable: Variable,
+        expression: *const Expr,
+    };
+
+    fn newAbstraction(variable: Variable, expression: Expr) Expr {
+        return Expr{
+            .abstraction = Abstraction{
+                .variable = variable,
+                .expression = &expression,
+            },
+        };
+    }
+
+    const Application = struct {
+        abstraction: *const Expr,
+        argument: *const Expr,
+    };
+
+    fn newApplication(abstraction: Expr, argument: Expr) Expr {
+        return Expr{
+            .application = Application{
+                .abstraction = &abstraction,
+                .argument = &argument,
+            },
+        };
+    }
+
+    variable: Variable,
+    abstraction: Abstraction,
+    application: Application,
+
+    pub fn parseTokens(tokens: []const LexToken) ExprParseError!Expr {
+        if (tokens.len == 0) {
             return ExprParseError.EmptyExpr;
         }
         switch (tokens[0]) {
-            LexToken.group => {
-                const group_expr = try Expr.parseTokens(tokens[0].group);
-                if (tokens_len == 1) {
+            LexToken.group => |*group| {
+                const group_expr = try Expr.parseTokens(group.*.items);
+                if (tokens.len == 1) {
                     return group_expr;
                 } else {
-                    return Expr{
-                        .application = .{
-                            group_expr,
-                            try Expr.parseTokens(tokens[1..]),
-                        },
-                    };
+                    return Expr.newApplication(
+                        group_expr,
+                        try Expr.parseTokens(tokens[1..]),
+                    );
                 }
             },
             LexToken.text => {
-                const variable_expr = Expr{ .variable = tokens[0].text };
-                if (tokens_len == 1) {
+                const variable_expr = Expr.newVariable(tokens[0].text);
+                if (tokens.len == 1) {
                     return variable_expr;
                 } else {
-                    return Expr{
-                        .application = .{
-                            variable_expr,
-                            try Expr.parseTokens(tokens[1..]),
-                        },
-                    };
+                    return Expr.newApplication(
+                        variable_expr,
+                        try Expr.parseTokens(tokens[1..]),
+                    );
                 }
             },
             LexToken.lambda => {
                 if (
-                    tokens_len < 4 or
-                    @tagName(tokens[1]) != "text" or
-                    @tagName(tokens[2]) != "dot"
+                    tokens.len < 4 or
+                    !std.mem.eql(u8, @tagName(tokens[1]), "text") or
+                    !std.mem.eql(u8, @tagName(tokens[2]), "dot")
                 ) {
                     return ExprParseError.SyntaxError;
                 }
-                return try Expr{
-                    .abstraction = .{
-                        tokens[1].text,
-                        try Expr.parseTokens(tokens[3..]),
-                    },
-                };
+                return Expr.newAbstraction(
+                    tokens[1].text,
+                    try Expr.parseTokens(tokens[3..]),
+                );
             },
             else => return ExprParseError.SyntaxError,
         }
@@ -143,23 +173,24 @@ const CmdParseError = error{
 };
 
 const Cmd = union(enum) {
-    quit,
-    help,
+    quit: u0,
+    help: u0,
     read: []const u8,
     write: []const u8,
 
-    fn parseStr(string: []const u8) CmdParseError!Cmd {
+    pub fn parseStr(string: []const u8) CmdParseError!Cmd {
         return switch (string[0]) {
-            'q' => Cmd.quit,
-            'h' => Cmd.help,
+            'q' => Cmd{ .quit = 0 },
+            'h' => Cmd{ .help = 0 },
             'r' | 'w' => {
-                var start_index = for (string[1..]) |char, index| {
-                    if (char != ' ' and char != '\t')
-                        break index;
-                };
+                var i: usize = 1;
+                const body = while (i < string.len): (i += 1) {
+                    if (string[i] != ' ' and string[i] != '\t')
+                        break string[i..];
+                } else "";
                 return switch (string[0]) {
-                    'r' => Cmd{ .read = string[1+start_index] },
-                    'w' => Cmd{ .write = string[1+start_index] },
+                    'r' => Cmd{ .read = body },
+                    'w' => Cmd{ .write = body },
                     else => unreachable,
                 };
             },
@@ -174,27 +205,32 @@ CmdParseError ||
 error{};
 
 const FullExpr = union(enum) {
+    const Assignment = struct {
+        alias: []const u8,
+        expression: Expr,
+    };
+
     expression: Expr,
     command: Cmd,
-    assign: .{[]const u8, Expr},
+    assignment: Assignment,
     empty,
 
-    fn parseLexTokens(tokens: ArrayList(LexToken)) FullExprParseError!FullExpr {
-        if (tokens.len() == 0) {
+    pub fn parseLexTokens(tokens: []const LexToken) FullExprParseError!FullExpr {
+        if (tokens.len == 0) {
             return FullExpr.empty;
-        } else if (@tagName(tokens[0]) == "dot") {
+        } else if (std.mem.eql(u8, @tagName(tokens[0]), "dot")) {
             return FullExpr{
                 .command = try Cmd.parseStr(tokens[1].text),
             };
         } else if (
-            tokens.len() > 2 and
-            @tagName(tokens[0]) == "text" and
-            @tagName(tokens[1]) == "equals"
+            tokens.len > 2 and
+            std.mem.eql(u8, @tagName(tokens[0]), "text") and
+            std.mem.eql(u8, @tagName(tokens[1]), "equals")
         ) {
             return FullExpr{
-                .assign = .{
-                    tokens[0].text,
-                    try Expr.parseTokens(tokens[2..]),
+                .assignment = Assignment{
+                    .alias = tokens[0].text,
+                    .expression = try Expr.parseTokens(tokens[2..]),
                 },
             };
         } else {
@@ -210,37 +246,47 @@ const INPUT_BUF_SIZE = 1024;
 pub fn main() !void {
     const stdin = std.io.getStdIn();
     defer stdin.close();
+    var tokens: ArrayList(LexToken) = undefined;
     var buffer: [INPUT_BUF_SIZE]u8 = undefined;
     var line: ?[]u8 = undefined;
     var reader = stdin.reader();
     main: while (true) {
-        line = reader.readUntilDelimiterOrEof(&buffer, '\n') catch continue :main;
-        const tokens = try LexToken.parseStr(line.?);
+        std.debug.print(">", .{});
+        line = reader.readUntilDelimiterOrEof(&buffer, '\n') catch {
+            std.debug.print("ERROR WHILE READING", .{});
+            continue :main;
+        };
+        tokens = LexToken.parseStr(line.?) catch {
+            std.debug.print("ERROR WHILE GETTING LEX TOKENS", .{});
+            continue :main;
+        };
         defer {
-            for (tokens) |token| {
-                if (@tagName(token) == "group") {
+            for (tokens.items) |token| {
+                if (std.mem.eql(u8, @tagName(token), "group")) {
                     token.group.deinit();
                 }
             }
             tokens.deinit();
         }
-        const full_expr = try FullExpr.parseLexTokens(tokens);
-        defer full_expr.free();
+        const full_expr = FullExpr.parseLexTokens(tokens.items) catch {
+            std.debug.print("ERROR WHILE PARSING FULL EXPR", .{});
+            continue :main;
+        };
         switch (full_expr) {
             FullExpr.expression => |*expression| {
-                std.debug.log("EXPRESSION", .{});
+                std.debug.print("EXPRESSION", .{});
                 _ = expression;
             },
             FullExpr.command => |*command| {
                 switch (command.*) {
                     Cmd.quit => break :main,
-                    Cmd.help => std.debug.log("HELP", .{}),
-                    Cmd.read => |*read| std.debug.log("READ: {s}", .{read.*}),
-                    Cmd.write => |*write| std.debug.log("READ: {s}", .{write.*}),
+                    Cmd.help => std.debug.print("HELP", .{}),
+                    Cmd.read => |*read| std.debug.print("READ: {s}", .{read.*}),
+                    Cmd.write => |*write| std.debug.print("READ: {s}", .{write.*}),
                 }
             },
-            FullExpr.assign => |*assign| {
-                std.debug.log("ASSIGN {s}", .{assign.*[0]});
+            FullExpr.assignment => |*assignment| {
+                std.debug.print("ASSIGNMENT {s}", .{assignment.*.alias});
             },
             else => continue :main,
         }
