@@ -58,10 +58,17 @@ const LexToken = union(enum) {
     }
 };
 
+const ExprParseError = error{};
+
 const Expr = union(enum) {
     variable: []const u8,
     abstraction: .{[]const u8, Expr},
     application: .{Expr, Expr},
+
+    fn parseTokens(tokens: ArrayList(LexToken)) ExprParseError!Expr {
+        // TODO
+        return Expr{ .variable = "var" };
+    }
 };
 
 const CmdParseError = error{
@@ -95,6 +102,7 @@ const Cmd = union(enum) {
 };
 
 const FullExprParseError =
+ExprParseError ||
 CmdParseError ||
 error{};
 
@@ -114,9 +122,9 @@ const FullExpr = union(enum) {
             (@tagName(tokens[0]) == "text") &&
             (@tagName(tokens[1]) == "equals")
         ) {
-            break try Expr.parseStr(tokens[2..]);
+            break try Expr.parseTokens(tokens[2..]);
         } else {
-            break try Expr.parseStr(tokens);
+            break try Expr.parseTokens(tokens);
         };
     }
 };
