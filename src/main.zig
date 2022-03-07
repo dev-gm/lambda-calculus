@@ -124,7 +124,7 @@ const Expr = union(enum) {
                     },
                 };
             },
-            else => return SyntaxError,
+            else => return ExprParseError.SyntaxError,
         }
     }
 };
