@@ -17,7 +17,7 @@ const LexToken = union(enum) {
         var tokens = try ArrayList(LexToken).init(general_allocator);
         var text_start: ?usize = null;
         var skip_until: ?usize = null;
-        parse: for (string) |index, char| {
+        parse: for (string) |char, index| {
             if (skip_until) |*i| {
                 if (index >= i.*)
                     skip_until = null;
@@ -144,7 +144,7 @@ const Cmd = union(enum) {
             'q' => Cmd.quit,
             'h' => Cmd.help,
             'r' | 'w' => {
-                var start_index = for (string[1..]) |index, char| {
+                var start_index = for (string[1..]) |char, index| {
                     if (char != ' ' and char != '\t')
                         break index;
                 };
@@ -196,4 +196,31 @@ const FullExpr = union(enum) {
     }
 };
 
-pub fn main() void {}
+const INPUT_BUF_SIZE = 1024;
+
+pub fn main() !void {
+    const stdin = std.io.getStdIn();
+    defer stdin.close();
+    var buffer: [INPUT_BUF_SIZE]u8 = undefined;
+    var line = undefined;
+    var reader = stdin.reader();
+    main: while (true): (reader.readUntilDelimiterOrEof(&buffer, '\n')) {
+        const tokens = try LexToken.parseStr(buffer[0..line]);
+        defer {
+            for (tokens) |token| {
+                if (@tagName(token) == "group") {
+                    token.group.deinit();
+                }
+            }
+            tokens.deinit();
+        }
+        const full_expr = try FullExpr.parseLexTokens(tokens);
+        defer full_expr.free();
+        switch (full_expr) {
+            FullExpr.expression => |*expression| {},
+            FullExpr.command => |*command| {},
+            FullExpr.assign => |*assign| {},
+            else => continue :main,
+        }
+    }
+}
