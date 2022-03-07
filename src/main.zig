@@ -17,14 +17,14 @@ const LexToken = union(enum) {
         var tokens = try ArrayList(LexToken).init(general_allocator);
         var text_start: ?usize = null;
         var skip_until: ?usize = null;
-        for (string) |index, char| {
+        parse: for (string) |index, char| {
             if (skip_until) |*i| {
                 if (index >= i.*)
                     skip_until = null;
-                continue;
+                continue :parse;
             }
             switch (char) {
-                '(' | ')' | '\\' | '.' | '=' => {
+                '(' | ')' | '\\' | '.' | '=' |' ' | '\t' => {
                     if (text_start) |*start_index| {
                         try tokens.append(LexToken{ .text = string[start_index.*..] });
                         text_start = null;
@@ -45,10 +45,10 @@ const LexToken = union(enum) {
                             }
                         },
                         '=' => try tokens.append(LexToken.equals),
+                        ' ' | '\t' => continue :parse,
                         else => unreachable
                     }
                 },
-                ' ' | '\t' => continue,
                 else => {
                     if (text_start == null)
                         text_start = index;
@@ -59,7 +59,13 @@ const LexToken = union(enum) {
     }
 };
 
-const ExprParseError = error{};
+// {lambda}{var: text}{dot}{body: ..} => abstraction($var, PARSE($body))
+// {func: abstraction}{rest: ..} => application($func, PARSE($rest))
+
+const ExprParseError = error{
+    ExprEmpty,
+    InvalidAbstraction,
+};
 
 const Expr = union(enum) {
     variable: []const u8,
@@ -67,9 +73,53 @@ const Expr = union(enum) {
     application: .{Expr, Expr},
 
     fn parseTokens(tokens: ArrayList(LexToken)) ExprParseError!Expr {
-        _ = tokens;
-        // TODO
-        return Expr{ .variable = "var" };
+        const tokens_len = tokens.len();
+        if (tokens_len == 0) {
+            return ExprParseError.ExprEmpty;
+        }
+        switch (tokens[0]) {
+            LexToken.group => {
+                const group_expr = Expr.parseTokens(tokens[0].group);
+                if (tokens_len == 1) {
+                    return group_expr;
+                } else {
+                    return Expr{
+                        .application = .{
+                            group_expr,
+                            Expr.parseTokens(tokens[1..]),
+                        },
+                    };
+                }
+            },
+            LexToken.lambda => {
+                if (
+                    tokens_len < 4 or
+                    @tagName(tokens[1]) != "text" or
+                    @tagName(tokens[2]) != "dot"
+                ) {
+                    return ExprParseError.InvalidAbstraction;
+                }
+                return Expr{
+                    .abstraction = .{
+                        tokens[1].text,
+                        Expr.parseTokens(tokens[3..]),
+                    },
+                };
+            },
+            LexToken.text => {
+                const variable_expr = Expr{ .variable = tokens[0].text };
+                if (tokens_len == 1) {
+                    return variable_expr;
+                } else {
+                    return Expr{
+                        .application = .{
+                            variable_expr,
+                            Expr.parseTokens(tokens[1..]),
+                        },
+                    };
+                }
+            }
+        }
     }
 };
 
@@ -118,15 +168,24 @@ const FullExpr = union(enum) {
         if (tokens.len() == 0) {
             return FullExpr.empty;
         } else if (@tagName(tokens[0]) == "dot") {
-            return try Cmd.parseStr(tokens[1].text);
+            return FullExpr{
+                .command = try Cmd.parseStr(tokens[1].text),
+            };
         } else if (
             tokens.len() > 2 and
             @tagName(tokens[0]) == "text" and
             @tagName(tokens[1]) == "equals"
         ) {
-            return try Expr.parseTokens(tokens[2..]);
+            return FullExpr{
+                .assign = .{
+                    tokens[0].text,
+                    try Expr.parseTokens(tokens[2..]),
+                },
+            };
         } else {
-            return try Expr.parseTokens(tokens);
+            return FullExpr{
+                .expression = try Expr.parseTokens(tokens),
+            };
         }
     }
 };
