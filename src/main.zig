@@ -23,7 +23,7 @@ const LexToken = union(enum) {
     }
 
     fn parseSubStr(string: []const u8, is_inner: bool) !subStrReturnType {
-        var tokens = try ArrayList(LexToken).init(GeneralPurposeAllocator({}).init());
+        var tokens = try ArrayList(LexToken).init(GeneralPurposeAllocator(.{}).allocator());
         var text_start: ?usize = null;
         var skip_until: ?usize = null;
         parse: for (string) |char, index| {
