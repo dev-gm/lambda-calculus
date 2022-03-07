@@ -37,7 +37,13 @@ const LexToken = union(enum) {
                         },
                         ')' => return tokens,
                         '\\' => try tokens.append(LexToken.lambda),
-                        '.' => try tokens.append(LexToken.dot),
+                        '.' => {
+                            try tokens.append(LexToken.dot);
+                            if (tokens.len() == 1) {
+                                try tokens.append(LexToken{ .text = string[index+1..] });
+                                return tokens;
+                            }
+                        },
                         '=' => try tokens.append(LexToken.equals),
                         else => unreachable
                     }
@@ -52,6 +58,59 @@ const LexToken = union(enum) {
     }
 };
 
-const 
+const Expr = union(enum) {
+    variable: []const u8,
+    abstraction: .{[]const u8, Expr},
+    application: .{Expr, Expr},
+};
+
+const CmdParseError = error{
+    InvalidCommand,
+};
+
+const Cmd = union(enum) {
+    quit,
+    help,
+    read: []const u8,
+    write: []const u8,
+
+    fn parseStr(string: []const u8) CmdParseError!Cmd {
+        return switch (string[0]) {
+            'q' => Cmd.quit,
+            'h' => Cmd.help,
+            'r' | 'w' => {
+                var start_index = for (string[1..]) |index, char| {
+                    if ((char != ' ') && (char != '\t'))
+                        break index;
+                };
+                break switch (string[0]) {
+                    'r' => Cmd{ .read = string[1+start_index] },
+                    'w' => Cmd{ .write = string[1+start_index] },
+                    else => unreachable,
+                };
+            },
+            else => CmdParseError.InvalidCommand,
+        };
+    }
+};
+
+const FullExprParseError =
+CmdParseError ||
+error{};
+
+const FullExpr = union(enum) {
+    expression: Expr,
+    command: Cmd,
+    assign: .{[]const u8, Expr},
+    empty,
+
+    fn parseLexTokens(tokens: ArrayList(LexToken)) FullExprParseError!FullExpr {
+        if (tokens.len() == 0)
+            return FullExpr.empty;
+        if (@tagName(tokens[0]) == "dot") {
+            return try Cmd.parseStr(tokens[1].text);
+        }
+    }
+};
 
 pub fn main() void {}
