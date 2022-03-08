@@ -42,12 +42,16 @@ pub fn main() !void {
             continue :main;
         };
         defer LexToken.freeArrayList(tokens);
+        state.replaceAliases(&tokens.items, general_allocator.allocator()) catch |err| {
+            println("Alias error: {s}", .{err});
+            continue :main;
+        };
         const full_expr = FullExpr.parseLexTokens(tokens.items) catch |err| {
             println("Parsing error: {s}", .{err});
             continue :main;
         };
         switch (full_expr) {
-            FullExpr.expression => |*expression| println("{any}", .{state.insertAliasesIntoExpr(&expression.*)}),
+            FullExpr.expression => |*expression| println("{any}", .{expression.*}),
             FullExpr.command => |*command| {
                 switch (command.*) {
                     Cmd.quit => break :main,

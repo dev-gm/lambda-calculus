@@ -2,6 +2,7 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 
 pub const LexToken = union(enum) {
+    expression: Expr,
     group: ArrayList(LexToken),
     text: []const u8,
     lambda,
@@ -86,12 +87,12 @@ pub const LexToken = union(enum) {
 // {lambda}{arg: text}{dot}{rest: ..} => abstraction($arg, PARSE($rest))
 // else => SyntaxError
 
-const ExprParseError = error{
-    EmptyExpr,
-    SyntaxError,
-};
-
 pub const Expr = union(enum) {
+    const ParseError = error{
+        EmptyExpr,
+        SyntaxError,
+    };    
+
     const Variable = []const u8;
 
     fn newVariable(variable: Variable) Expr {
@@ -130,11 +131,21 @@ pub const Expr = union(enum) {
     abstraction: Abstraction,
     application: Application,
 
-    fn parseTokens(tokens: []const LexToken) ExprParseError!Expr {
+    fn parseTokens(tokens: []const LexToken) Expr.ParseError!Expr {
         if (tokens.len == 0) {
-            return ExprParseError.EmptyExpr;
+            return Expr.ParseError.EmptyExpr;
         }
         switch (tokens[0]) {
+            LexToken.expression => |*expression| {
+                if (tokens.len == 1) {
+                    return expression.*;
+                } else {
+                    return Expr.newApplication(
+                        expression,
+                        &(try Expr.parseTokens(tokens[1..])),
+                    );
+                }
+            },
             LexToken.group => |*group| {
                 const group_expr = try Expr.parseTokens(group.*.items);
                 if (tokens.len == 1) {
@@ -163,29 +174,29 @@ pub const Expr = union(enum) {
                     !std.mem.eql(u8, @tagName(tokens[1]), "text") or
                     !std.mem.eql(u8, @tagName(tokens[2]), "dot")
                 ) {
-                    return ExprParseError.SyntaxError;
+                    return Expr.ParseError.SyntaxError;
                 }
                 return Expr.newAbstraction(
                     tokens[1].text,
                     &(try Expr.parseTokens(tokens[3..])),
                 );
             },
-            else => return ExprParseError.SyntaxError,
+            else => return Expr.ParseError.SyntaxError,
         }
     }
 };
 
-const CmdParseError = error{
-    InvalidCommand,
-};
-
 pub const Cmd = union(enum) {
+    const ParseError = error{
+        InvalidCommand,
+    };
+
     quit: u0,
     help: u0,
     read: []const u8,
     write: []const u8,
 
-    fn parseStr(string: []const u8) CmdParseError!Cmd {
+    fn parseStr(string: []const u8) Cmd.ParseError!Cmd {
         return switch (string[0]) {
             'q' => Cmd{ .quit = 0 },
             'h' => Cmd{ .help = 0 },
@@ -201,14 +212,14 @@ pub const Cmd = union(enum) {
                     else => unreachable,
                 };
             },
-            else => CmdParseError.InvalidCommand,
+            else => Cmd.ParseError.InvalidCommand,
         };
     }
 };
 
-const FullExprParseError = ExprParseError || CmdParseError;
-
 pub const FullExpr = union(enum) {
+    const ParseError = Expr.ParseError || Cmd.ParseError;
+    
     pub const Assignment = struct {
         alias: []const u8,
         expression: Expr,
@@ -219,7 +230,7 @@ pub const FullExpr = union(enum) {
     assignment: Assignment,
     empty,
 
-    pub fn parseLexTokens(tokens: []const LexToken) FullExprParseError!FullExpr {
+    pub fn parseLexTokens(tokens: []const LexToken) FullExpr.ParseError!FullExpr {
         if (tokens.len == 0) {
             return FullExpr.empty;
         } else if (std.mem.eql(u8, @tagName(tokens[0]), "dot")) {
