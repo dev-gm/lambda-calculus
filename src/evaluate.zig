@@ -18,9 +18,9 @@ pub const State = struct {
         self.aliases.deinit();
     }
 
-    pub fn evaluateLexTokens(self: *State, tokens: *[]LexToken) void {
+    pub fn insertAliasesIntoExpr(self: *State, expr: *Expr) void {
         _ = self;
-        _ = tokens;
+        _ = expr;
     }
 
     pub fn evaluateAssignment(self: *State, assignment: *const Assignment) !void {
