@@ -10,14 +10,8 @@ const LexToken = union(enum) {
     dot,
     equals,
 
-    pub fn parseStr(string: []const u8) !ArrayList(LexToken) {
-        var general_allocator = GeneralPurposeAllocator(.{}){};
-        defer _ = general_allocator.deinit();
-        const tokens = (try parseSubStr(string, false, general_allocator.allocator())).tokens;
-        for (tokens.items) |token| {
-            print("{s}", .{@tagName(token)});
-        }
-        return tokens;
+    pub fn parseStr(string: []const u8, allocator: anytype) !ArrayList(LexToken) {
+        return (try parseSubStr(string, false, allocator)).tokens;
     }
 
 
@@ -46,7 +40,6 @@ const LexToken = union(enum) {
                         try tokens.append(LexToken{ .text = string[start_index.*..] });
                         text_start = null;
                     }
-                    print("{c}\n", .{char});
                     switch (char) {
                         '(' => {
                             const result = try LexToken.parseSubStr(string[index+1..], true, allocator);
@@ -56,7 +49,6 @@ const LexToken = union(enum) {
                         ')' => return subStrReturn(tokens, index),
                         '\\' => try tokens.append(LexToken.lambda),
                         '.' => {
-                            print("dot", .{});
                             try tokens.append(LexToken.dot);
                             if (tokens.items.len == 1 and !is_inner) {
                                 try tokens.append(LexToken{ .text = string[index+1..] });
@@ -189,7 +181,7 @@ const Cmd = union(enum) {
         return switch (string[0]) {
             'q' => Cmd{ .quit = 0 },
             'h' => Cmd{ .help = 0 },
-            'r' | 'w' => {
+            'r', 'w' => {
                 var i: usize = 1;
                 const body = while (i < string.len): (i += 1) {
                     if (string[i] != ' ' and string[i] != '\t')
@@ -258,14 +250,16 @@ pub fn main() !void {
     var line: ?[]u8 = undefined;
     var reader = stdin.reader();
     std.debug.print("Lambda calculus interpreter. 'h' to get help.\n", .{});
+    var general_allocator = GeneralPurposeAllocator(.{}){};
+    defer _ = general_allocator.deinit();
     main: while (true) {
         std.debug.print(">", .{});
-        line = reader.readUntilDelimiterOrEof(&buffer, '\n') catch {
-            std.debug.print("ERROR WHILE READING\n", .{});
+        line = reader.readUntilDelimiterOrEof(&buffer, '\n') catch |err| {
+            std.debug.print("ERROR WHILE READING: {s}\n", .{err});
             continue :main;
         };
-        tokens = LexToken.parseStr(line.?) catch {
-            std.debug.print("ERROR WHILE GETTING LEX TOKENS\n", .{});
+        tokens = LexToken.parseStr(line.?, general_allocator.allocator()) catch |err| {
+            std.debug.print("ERROR WHILE GETTING LEX TOKENS: {s}\n", .{err});
             continue :main;
         };
         defer {
@@ -275,8 +269,8 @@ pub fn main() !void {
             }
             tokens.deinit();
         }
-        const full_expr = FullExpr.parseLexTokens(tokens.items) catch {
-            std.debug.print("ERROR WHILE PARSING FULL EXPR\n", .{});
+        const full_expr = FullExpr.parseLexTokens(tokens.items) catch |err| {
+            std.debug.print("ERROR WHILE PARSING FULL EXPR: {s}\n", .{err});
             continue :main;
         };
         switch (full_expr) {
