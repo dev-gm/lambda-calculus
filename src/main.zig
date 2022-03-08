@@ -37,7 +37,7 @@ const LexToken = union(enum) {
             switch (char) {
                 '(', ')', '\\', '.', '=', ' ', '\t' => {
                     if (text_start) |*start_index| {
-                        try tokens.append(LexToken{ .text = string[start_index.*..] });
+                        try tokens.append(LexToken{ .text = string[start_index.*..index] });
                         text_start = null;
                     }
                     switch (char) {
@@ -65,6 +65,10 @@ const LexToken = union(enum) {
                         text_start = index;
                 }
             }
+        }
+        if (text_start) |*start_index| {
+            try tokens.append(LexToken{ .text = string[start_index.*..] });
+            text_start = null;
         }
         return subStrReturn(tokens, 0);
     }
@@ -95,11 +99,11 @@ const Expr = union(enum) {
         expression: *const Expr,
     };
 
-    fn newAbstraction(variable: Variable, expression: Expr) Expr {
+    fn newAbstraction(variable: Variable, expression: *const Expr) Expr {
         return Expr{
             .abstraction = Abstraction{
                 .variable = variable,
-                .expression = &expression,
+                .expression = expression,
             },
         };
     }
@@ -109,11 +113,11 @@ const Expr = union(enum) {
         argument: *const Expr,
     };
 
-    fn newApplication(abstraction: Expr, argument: Expr) Expr {
+    fn newApplication(abstraction: *const Expr, argument: *const Expr) Expr {
         return Expr{
             .application = Application{
-                .abstraction = &abstraction,
-                .argument = &argument,
+                .abstraction = abstraction,
+                .argument = argument,
             },
         };
     }
@@ -133,19 +137,19 @@ const Expr = union(enum) {
                     return group_expr;
                 } else {
                     return Expr.newApplication(
-                        group_expr,
-                        try Expr.parseTokens(tokens[1..]),
+                        &group_expr,
+                        &(try Expr.parseTokens(tokens[1..])),
                     );
                 }
             },
-            LexToken.text => {
-                const variable_expr = Expr.newVariable(tokens[0].text);
+            LexToken.text => |*text| {
+                const variable_expr = Expr.newVariable(text.*);
                 if (tokens.len == 1) {
                     return variable_expr;
                 } else {
                     return Expr.newApplication(
-                        variable_expr,
-                        try Expr.parseTokens(tokens[1..]),
+                        &variable_expr,
+                        &(try Expr.parseTokens(tokens[1..])),
                     );
                 }
             },
@@ -159,7 +163,7 @@ const Expr = union(enum) {
                 }
                 return Expr.newAbstraction(
                     tokens[1].text,
-                    try Expr.parseTokens(tokens[3..]),
+                    &(try Expr.parseTokens(tokens[3..])),
                 );
             },
             else => return ExprParseError.SyntaxError,
@@ -275,21 +279,23 @@ pub fn main() !void {
         };
         switch (full_expr) {
             FullExpr.expression => |*expression| {
-                std.debug.print("EXPRESSION\n", .{});
-                _ = expression;
+                std.debug.print("EXPRESSION: {any}\n", .{expression.*});
             },
             FullExpr.command => |*command| {
                 switch (command.*) {
                     Cmd.quit => break :main,
                     Cmd.help => std.debug.print("HELP\n", .{}),
                     Cmd.read => |*read| std.debug.print("READ: {s}\n", .{read.*}),
-                    Cmd.write => |*write| std.debug.print("READ: {s}\n", .{write.*}),
+                    Cmd.write => |*write| std.debug.print("WRITE: {s}\n", .{write.*}),
                 }
             },
             FullExpr.assignment => |*assignment| {
                 std.debug.print("ASSIGNMENT {s}\n", .{assignment.*.alias});
             },
-            else => continue :main,
+            else => {
+                print("EMPTY\n", .{});
+                continue :main;
+            },
         }
     }
 }
