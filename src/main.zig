@@ -1,7 +1,6 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
-const print = std.debug.print;
 
 const LexToken = union(enum) {
     group: ArrayList(LexToken),
@@ -246,6 +245,8 @@ const FullExpr = union(enum) {
 
 const INPUT_BUF_SIZE = 1024;
 
+const HELP_STRING = "";
+
 pub fn main() !void {
     const stdin = std.io.getStdIn();
     defer stdin.close();
@@ -259,11 +260,11 @@ pub fn main() !void {
     main: while (true) {
         std.debug.print(">", .{});
         line = reader.readUntilDelimiterOrEof(&buffer, '\n') catch |err| {
-            std.debug.print("ERROR WHILE READING: {s}\n", .{err});
+            std.debug.print("{s}\n", .{err});
             continue :main;
         };
         tokens = LexToken.parseStr(line.?, general_allocator.allocator()) catch |err| {
-            std.debug.print("ERROR WHILE GETTING LEX TOKENS: {s}\n", .{err});
+            std.debug.print("{s}\n", .{err});
             continue :main;
         };
         defer {
@@ -274,28 +275,29 @@ pub fn main() !void {
             tokens.deinit();
         }
         const full_expr = FullExpr.parseLexTokens(tokens.items) catch |err| {
-            std.debug.print("ERROR WHILE PARSING FULL EXPR: {s}\n", .{err});
+            std.debug.print("{s}\n", .{err});
             continue :main;
         };
         switch (full_expr) {
             FullExpr.expression => |*expression| {
-                std.debug.print("EXPRESSION: {any}\n", .{expression.*});
+                std.debug.print("{any}\n", .{expression.*});
             },
             FullExpr.command => |*command| {
                 switch (command.*) {
                     Cmd.quit => break :main,
-                    Cmd.help => std.debug.print("HELP\n", .{}),
-                    Cmd.read => |*read| std.debug.print("READ: {s}\n", .{read.*}),
-                    Cmd.write => |*write| std.debug.print("WRITE: {s}\n", .{write.*}),
+                    Cmd.help => std.debug.print("{s}\n", .{HELP_STRING}),
+                    Cmd.read => |*read| std.debug.print("Read from {s}...\n", .{read.*}),
+                    Cmd.write => |*write| std.debug.print("Write to {s}...\n", .{write.*}),
                 }
             },
             FullExpr.assignment => |*assignment| {
-                std.debug.print("ASSIGNMENT {s}\n", .{assignment.*.alias});
+                std.debug.print("{any}\n", .{assignment.*});
             },
             else => {
-                print("EMPTY\n", .{});
+                std.debug.print("EMPTY\n", .{});
                 continue :main;
             },
         }
     }
 }
+
