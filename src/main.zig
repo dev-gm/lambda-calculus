@@ -1,6 +1,7 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
+const print = std.debug.print;
 
 const LexToken = union(enum) {
     group: ArrayList(LexToken),
@@ -10,12 +11,17 @@ const LexToken = union(enum) {
     equals,
 
     pub fn parseStr(string: []const u8) !ArrayList(LexToken) {
-        var general_allocator: GeneralPurposeAllocator(.{}) = .{};
+        var general_allocator = GeneralPurposeAllocator(.{}){};
         defer _ = general_allocator.deinit();
-        return (try parseSubStr(string, false, general_allocator.allocator())).tokens;
+        const tokens = (try parseSubStr(string, false, general_allocator.allocator())).tokens;
+        for (tokens.items) |token| {
+            print("{s}", .{@tagName(token)});
+        }
+        return tokens;
     }
 
-    const subStrReturnType: type = struct {
+
+    const subStrReturnType = struct {
         tokens: ArrayList(LexToken),
         index: usize,
     };
@@ -35,11 +41,12 @@ const LexToken = union(enum) {
                 continue :parse;
             }
             switch (char) {
-                '(' | ')' | '\\' | '.' | '=' | ' ' | '\t' => {
+                '(', ')', '\\', '.', '=', ' ', '\t' => {
                     if (text_start) |*start_index| {
                         try tokens.append(LexToken{ .text = string[start_index.*..] });
                         text_start = null;
                     }
+                    print("{c}\n", .{char});
                     switch (char) {
                         '(' => {
                             const result = try LexToken.parseSubStr(string[index+1..], true, allocator);
@@ -49,15 +56,15 @@ const LexToken = union(enum) {
                         ')' => return subStrReturn(tokens, index),
                         '\\' => try tokens.append(LexToken.lambda),
                         '.' => {
+                            print("dot", .{});
                             try tokens.append(LexToken.dot);
-                            if (tokens.items.len == 0 and !is_inner) {
+                            if (tokens.items.len == 1 and !is_inner) {
                                 try tokens.append(LexToken{ .text = string[index+1..] });
                                 return subStrReturn(tokens, index);
                             }
                         },
                         '=' => try tokens.append(LexToken.equals),
-                        ' ' => continue :parse,
-                        '\t' => continue :parse,
+                        ' ', '\t' => continue :parse,
                         else => unreachable,
                     }
                 },
@@ -250,43 +257,43 @@ pub fn main() !void {
     var buffer: [INPUT_BUF_SIZE]u8 = undefined;
     var line: ?[]u8 = undefined;
     var reader = stdin.reader();
+    std.debug.print("Lambda calculus interpreter. 'h' to get help.\n", .{});
     main: while (true) {
         std.debug.print(">", .{});
         line = reader.readUntilDelimiterOrEof(&buffer, '\n') catch {
-            std.debug.print("ERROR WHILE READING", .{});
+            std.debug.print("ERROR WHILE READING\n", .{});
             continue :main;
         };
         tokens = LexToken.parseStr(line.?) catch {
-            std.debug.print("ERROR WHILE GETTING LEX TOKENS", .{});
+            std.debug.print("ERROR WHILE GETTING LEX TOKENS\n", .{});
             continue :main;
         };
         defer {
             for (tokens.items) |token| {
-                if (std.mem.eql(u8, @tagName(token), "group")) {
+                if (std.mem.eql(u8, @tagName(token), "group"))
                     token.group.deinit();
-                }
             }
             tokens.deinit();
         }
         const full_expr = FullExpr.parseLexTokens(tokens.items) catch {
-            std.debug.print("ERROR WHILE PARSING FULL EXPR", .{});
+            std.debug.print("ERROR WHILE PARSING FULL EXPR\n", .{});
             continue :main;
         };
         switch (full_expr) {
             FullExpr.expression => |*expression| {
-                std.debug.print("EXPRESSION", .{});
+                std.debug.print("EXPRESSION\n", .{});
                 _ = expression;
             },
             FullExpr.command => |*command| {
                 switch (command.*) {
                     Cmd.quit => break :main,
-                    Cmd.help => std.debug.print("HELP", .{}),
-                    Cmd.read => |*read| std.debug.print("READ: {s}", .{read.*}),
-                    Cmd.write => |*write| std.debug.print("READ: {s}", .{write.*}),
+                    Cmd.help => std.debug.print("HELP\n", .{}),
+                    Cmd.read => |*read| std.debug.print("READ: {s}\n", .{read.*}),
+                    Cmd.write => |*write| std.debug.print("READ: {s}\n", .{write.*}),
                 }
             },
             FullExpr.assignment => |*assignment| {
-                std.debug.print("ASSIGNMENT {s}", .{assignment.*.alias});
+                std.debug.print("ASSIGNMENT {s}\n", .{assignment.*.alias});
             },
             else => continue :main,
         }
