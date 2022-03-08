@@ -260,11 +260,11 @@ pub fn main() !void {
     main: while (true) {
         std.debug.print(">", .{});
         line = reader.readUntilDelimiterOrEof(&buffer, '\n') catch |err| {
-            std.debug.print("{s}\n", .{err});
+            std.debug.print("Read error: {s}\n", .{err});
             continue :main;
         };
         tokens = LexToken.parseStr(line.?, general_allocator.allocator()) catch |err| {
-            std.debug.print("{s}\n", .{err});
+            std.debug.print("Lexing error: {s}\n", .{err});
             continue :main;
         };
         defer {
@@ -275,13 +275,11 @@ pub fn main() !void {
             tokens.deinit();
         }
         const full_expr = FullExpr.parseLexTokens(tokens.items) catch |err| {
-            std.debug.print("{s}\n", .{err});
+            std.debug.print("Parsing error: {s}\n", .{err});
             continue :main;
         };
         switch (full_expr) {
-            FullExpr.expression => |*expression| {
-                std.debug.print("{any}\n", .{expression.*});
-            },
+            FullExpr.expression => |*expression| std.debug.print("{any}\n", .{expression.*}),
             FullExpr.command => |*command| {
                 switch (command.*) {
                     Cmd.quit => break :main,
@@ -290,14 +288,8 @@ pub fn main() !void {
                     Cmd.write => |*write| std.debug.print("Write to {s}...\n", .{write.*}),
                 }
             },
-            FullExpr.assignment => |*assignment| {
-                std.debug.print("{any}\n", .{assignment.*});
-            },
-            else => {
-                std.debug.print("EMPTY\n", .{});
-                continue :main;
-            },
+            FullExpr.assignment => |*assignment| std.debug.print("{any}\n", .{assignment.*}),
+            else => continue :main,
         }
     }
 }
-
