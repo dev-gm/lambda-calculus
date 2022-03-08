@@ -201,10 +201,7 @@ const Cmd = union(enum) {
     }
 };
 
-const FullExprParseError =
-ExprParseError ||
-CmdParseError ||
-error{};
+const FullExprParseError = ExprParseError || CmdParseError;
 
 const FullExpr = union(enum) {
     const Assignment = struct {
