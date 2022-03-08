@@ -42,7 +42,7 @@ pub fn main() !void {
             continue :main;
         };
         defer LexToken.freeArrayList(tokens);
-        state.replaceAliases(&tokens.items, general_allocator.allocator()) catch |err| {
+        state.replaceAliases(tokens.items, general_allocator.allocator()) catch |err| {
             println("Alias error: {s}", .{err});
             continue :main;
         };
