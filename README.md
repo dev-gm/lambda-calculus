@@ -4,7 +4,7 @@ A command-line REPL for lambda calculus, with support for function aliases and s
 ## TODO:
 - Parse commands (DONE)
 - Process quit and help commands (DONE)
-- Parse expressions (PARTIALLY DONE)
+- Parse expressions (DONE)
 - Parse assignments (DONE)
 - Process expressions
 - Process assignments
