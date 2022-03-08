@@ -2,11 +2,14 @@ const std = @import("std");
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 
 const parse = @import("./parse.zig");
+const evaluate = @import("./evaluate.zig");
 
 const LexToken = parse.LexToken;
 const Cmd = parse.Cmd;
 const Expr = parse.Expr;
 const FullExpr = parse.FullExpr;
+
+const State = evaluate.State;
 
 pub fn println(comptime fmt: []const u8, args: anytype) void {
     std.debug.print(fmt ++ "\n", args);
@@ -26,6 +29,8 @@ pub fn main() !void {
     println("Lambda calculus interpreter. 'h' to get help.", .{});
     var general_allocator = GeneralPurposeAllocator(.{}){};
     defer _ = general_allocator.deinit();
+    var state = State.init(general_allocator.allocator());
+    defer state.deinit();
     main: while (true) {
         std.debug.print(">", .{});
         line = reader.readUntilDelimiterOrEof(&buffer, '\n') catch |err| {
@@ -37,6 +42,7 @@ pub fn main() !void {
             continue :main;
         };
         defer LexToken.freeArrayList(tokens);
+        state.evaluateLexTokens(&tokens.items);
         const full_expr = FullExpr.parseLexTokens(tokens.items) catch |err| {
             println("Parsing error: {s}", .{err});
             continue :main;
@@ -51,7 +57,12 @@ pub fn main() !void {
                     Cmd.write => |*write| println("Write to {s}...", .{write.*}),
                 }
             },
-            FullExpr.assignment => |*assignment| println("{any}", .{assignment.*}),
+            FullExpr.assignment => |*assignment| {
+                state.evaluateAssignment(assignment) catch |err| {
+                    println("Alias error: {s}", .{err});
+                    continue :main;
+                };
+            },
             else => continue :main,
         }
     }

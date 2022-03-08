@@ -209,7 +209,7 @@ pub const Cmd = union(enum) {
 const FullExprParseError = ExprParseError || CmdParseError;
 
 pub const FullExpr = union(enum) {
-    const Assignment = struct {
+    pub const Assignment = struct {
         alias: []const u8,
         expression: Expr,
     };
