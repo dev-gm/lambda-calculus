@@ -1,15 +1,14 @@
 const std = @import("std");
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
+const StringHashMap = std.StringHashMap;
 
 const parse = @import("./parse.zig");
-const evaluate = @import("./evaluate.zig");
+const alias = @import("./alias.zig");
 
 const LexToken = parse.LexToken;
 const Cmd = parse.Cmd;
 const Expr = parse.Expr;
 const FullExpr = parse.FullExpr;
-
-const State = evaluate.State;
 
 pub fn println(comptime fmt: []const u8, args: anytype) void {
     std.debug.print(fmt ++ "\n", args);
@@ -29,8 +28,8 @@ pub fn main() !void {
     println("Lambda calculus interpreter. 'h' to get help.", .{});
     var general_allocator = GeneralPurposeAllocator(.{}){};
     defer _ = general_allocator.deinit();
-    var state = State.init(general_allocator.allocator());
-    defer state.deinit();
+    var aliases = StringHashMap(Expr.Abstraction).init(general_allocator.allocator());
+    defer aliases.deinit();
     main: while (true) {
         std.debug.print(">", .{});
         line = reader.readUntilDelimiterOrEof(&buffer, '\n') catch |err| {
@@ -42,8 +41,8 @@ pub fn main() !void {
             continue :main;
         };
         defer LexToken.freeArrayList(tokens);
-        state.replaceAliases(tokens.items, general_allocator.allocator()) catch |err| {
-            println("Alias error: {s}", .{err});
+        alias.replaceAliases(&aliases, tokens.items, general_allocator.allocator()) catch |err| {
+            println("Replacing alias error: {s}", .{err});
             continue :main;
         };
         const full_expr = FullExpr.parseLexTokens(tokens.items) catch |err| {
@@ -61,8 +60,11 @@ pub fn main() !void {
                 }
             },
             FullExpr.assignment => |*assignment| {
-                state.evaluateAssignment(assignment) catch |err| {
-                    println("Alias error: {s}", .{err});
+                aliases.putNoClobber(
+                    assignment.*.alias,
+                    assignment.*.expression
+                ) catch |err| {
+                    println("Creating alias error: {s}", .{err});
                     continue :main;
                 };
             },

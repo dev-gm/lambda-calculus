@@ -1,29 +1,32 @@
 const std = @import("std");
+const eql = std.mem.eql;
 const ArrayList = std.ArrayList;
 
 pub const LexToken = union(enum) {
-    expression: Expr,
-    group: ArrayList(LexToken),
+    const Self = @This();
+
+    abstraction: Expr.Abstraction,
+    group: ArrayList(Self),
     text: []const u8,
     lambda,
     dot,
     equals,
 
-    pub fn parseStr(string: []const u8, allocator: anytype) !ArrayList(LexToken) {
+    pub fn parseStr(string: []const u8, allocator: anytype) !ArrayList(Self) {
         return (try parseSubStr(string, false, allocator)).tokens;
     }
 
     const subStrReturnType = struct {
-        tokens: ArrayList(LexToken),
+        tokens: ArrayList(Self),
         index: usize,
     };
 
-    fn subStrReturn(tokens: ArrayList(LexToken), index: usize) subStrReturnType {
+    fn subStrReturn(tokens: ArrayList(Self), index: usize) subStrReturnType {
         return subStrReturnType { .tokens = tokens, .index = index };
     }
 
     fn parseSubStr(string: []const u8, is_inner: bool, allocator: anytype) anyerror!subStrReturnType {
-        var tokens = ArrayList(LexToken).init(allocator);
+        var tokens = ArrayList(Self).init(allocator);
         var text_start: ?usize = null;
         var skip_until: ?usize = null;
         parse: for (string) |char, index| {
@@ -35,25 +38,25 @@ pub const LexToken = union(enum) {
             switch (char) {
                 '(', ')', '\\', '.', '=', ' ', '\t' => {
                     if (text_start) |*start_index| {
-                        try tokens.append(LexToken{ .text = string[start_index.*..index] });
+                        try tokens.append(Self{ .text = string[start_index.*..index] });
                         text_start = null;
                     }
                     switch (char) {
                         '(' => {
-                            const result = try LexToken.parseSubStr(string[index+1..], true, allocator);
-                            try tokens.append(LexToken{ .group = result.tokens });
+                            const result = try Self.parseSubStr(string[index+1..], true, allocator);
+                            try tokens.append(Self{ .group = result.tokens });
                             skip_until = result.index;
                         },
                         ')' => return subStrReturn(tokens, index),
-                        '\\' => try tokens.append(LexToken.lambda),
+                        '\\' => try tokens.append(Self.lambda),
                         '.' => {
-                            try tokens.append(LexToken.dot);
+                            try tokens.append(Self.dot);
                             if (tokens.items.len == 1 and !is_inner) {
-                                try tokens.append(LexToken{ .text = string[index+1..] });
+                                try tokens.append(Self{ .text = string[index+1..] });
                                 return subStrReturn(tokens, index);
                             }
                         },
-                        '=' => try tokens.append(LexToken.equals),
+                        '=' => try tokens.append(Self.equals),
                         ' ', '\t' => continue :parse,
                         else => unreachable,
                     }
@@ -65,16 +68,16 @@ pub const LexToken = union(enum) {
             }
         }
         if (text_start) |*start_index| {
-            try tokens.append(LexToken{ .text = string[start_index.*..] });
+            try tokens.append(Self{ .text = string[start_index.*..] });
             text_start = null;
         }
         return subStrReturn(tokens, 0);
     }
 
-    pub fn freeArrayList(self: ArrayList(LexToken)) void {
+    pub fn freeArrayList(self: ArrayList(Self)) void {
         for (self.items) |token|
-            if (std.mem.eql(u8, @tagName(token), "group"))
-                LexToken.freeArrayList(token.group);
+            if (eql(u8, @tagName(token), "group"))
+                Self.freeArrayList(token.group);
         self.deinit();
     }
 };
@@ -88,6 +91,8 @@ pub const LexToken = union(enum) {
 // else => SyntaxError
 
 pub const Expr = union(enum) {
+    const Self = @This();
+
     const ParseError = error{
         EmptyExpr,
         SyntaxError,
@@ -95,17 +100,17 @@ pub const Expr = union(enum) {
 
     const Variable = []const u8;
 
-    fn newVariable(variable: Variable) Expr {
-        return Expr{ .variable = variable };
+    fn newVariable(variable: Variable) Self {
+        return Self{ .variable = variable };
     }
 
-    const Abstraction = struct {
+    pub const Abstraction = struct {
         variable: Variable,
-        expression: *const Expr,
+        expression: *const Self,
     };
 
-    fn newAbstraction(variable: Variable, expression: *const Expr) Expr {
-        return Expr{
+    fn newAbstraction(variable: Variable, expression: *const Self) Self {
+        return Self{
             .abstraction = Abstraction{
                 .variable = variable,
                 .expression = expression,
@@ -114,12 +119,12 @@ pub const Expr = union(enum) {
     }
 
     const Application = struct {
-        abstraction: *const Expr,
-        argument: *const Expr,
+        abstraction: *const Self,
+        argument: *const Self,
     };
 
-    fn newApplication(abstraction: *const Expr, argument: *const Expr) Expr {
-        return Expr{
+    fn newApplication(abstraction: *const Self, argument: *const Self) Self {
+        return Self{
             .application = Application{
                 .abstraction = abstraction,
                 .argument = argument,
@@ -131,27 +136,28 @@ pub const Expr = union(enum) {
     abstraction: Abstraction,
     application: Application,
 
-    fn parseTokens(tokens: []const LexToken) Expr.ParseError!Expr {
+    fn parseTokens(tokens: []const LexToken) Self.ParseError!Self {
         if (tokens.len == 0) {
-            return Expr.ParseError.EmptyExpr;
+            return Self.ParseError.EmptyExpr;
         }
         switch (tokens[0]) {
-            LexToken.expression => |*expression| {
+            LexToken.abstraction => |*abstraction| {
+                const expression = Self.newAbstraction(abstraction.*);
                 if (tokens.len == 1) {
-                    return expression.*;
+                    return expression;
                 } else {
-                    return Expr.newApplication(
+                    return Self.newApplication(
                         expression,
-                        &(try Expr.parseTokens(tokens[1..])),
+                        &(try Self.parseTokens(tokens[1..])),
                     );
                 }
             },
             LexToken.group => |*group| {
-                const group_expr = try Expr.parseTokens(group.*.items);
+                const group_expr = try Self.parseTokens(group.*.items);
                 if (tokens.len == 1) {
                     return group_expr;
                 } else {
-                    return Expr.newApplication(
+                    return Self.newApplication(
                         &group_expr,
                         &(try Expr.parseTokens(tokens[1..])),
                     );
@@ -171,8 +177,8 @@ pub const Expr = union(enum) {
             LexToken.lambda => {
                 if (
                     tokens.len < 4 or
-                    !std.mem.eql(u8, @tagName(tokens[1]), "text") or
-                    !std.mem.eql(u8, @tagName(tokens[2]), "dot")
+                    !eql(u8, @tagName(tokens[1]), "text") or
+                    !eql(u8, @tagName(tokens[2]), "dot")
                 ) {
                     return Expr.ParseError.SyntaxError;
                 }
@@ -233,14 +239,14 @@ pub const FullExpr = union(enum) {
     pub fn parseLexTokens(tokens: []const LexToken) FullExpr.ParseError!FullExpr {
         if (tokens.len == 0) {
             return FullExpr.empty;
-        } else if (std.mem.eql(u8, @tagName(tokens[0]), "dot")) {
+        } else if (eql(u8, @tagName(tokens[0]), "dot")) {
             return FullExpr{
                 .command = try Cmd.parseStr(tokens[1].text),
             };
         } else if (
             tokens.len > 2 and
-            std.mem.eql(u8, @tagName(tokens[0]), "text") and
-            std.mem.eql(u8, @tagName(tokens[1]), "equals")
+            eql(u8, @tagName(tokens[0]), "text") and
+            eql(u8, @tagName(tokens[1]), "equals")
         ) {
             return FullExpr{
                 .assignment = Assignment{
