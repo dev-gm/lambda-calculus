@@ -37,7 +37,7 @@ fn innerReplaceAliases(aliases: *const StringHashMap(Abstraction), tokens: []Lex
                         tokens[index] = LexToken{ .abstraction = abstraction };
                 }
             },
-            LexToken.group => |*group| try aliases.innerReplaceAliases(group.*.items, &(try vars.*.clone())),
+            LexToken.group => |*group| try innerReplaceAliases(aliases, group.*.items, &(try vars.*.clone())),
             else => {},
         }
     }

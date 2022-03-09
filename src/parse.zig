@@ -142,12 +142,14 @@ pub const Expr = union(enum) {
         }
         switch (tokens[0]) {
             LexToken.abstraction => |*abstraction| {
-                const expression = Self.newAbstraction(abstraction.*);
+                const expression = Self{
+                    .abstraction = abstraction.*,
+                };
                 if (tokens.len == 1) {
                     return expression;
                 } else {
                     return Self.newApplication(
-                        expression,
+                        &expression,
                         &(try Self.parseTokens(tokens[1..])),
                     );
                 }
@@ -159,18 +161,18 @@ pub const Expr = union(enum) {
                 } else {
                     return Self.newApplication(
                         &group_expr,
-                        &(try Expr.parseTokens(tokens[1..])),
+                        &(try Self.parseTokens(tokens[1..])),
                     );
                 }
             },
             LexToken.text => |*text| {
-                const variable_expr = Expr.newVariable(text.*);
+                const variable_expr = Self.newVariable(text.*);
                 if (tokens.len == 1) {
                     return variable_expr;
                 } else {
-                    return Expr.newApplication(
+                    return Self.newApplication(
                         &variable_expr,
-                        &(try Expr.parseTokens(tokens[1..])),
+                        &(try Self.parseTokens(tokens[1..])),
                     );
                 }
             },
@@ -180,19 +182,21 @@ pub const Expr = union(enum) {
                     !eql(u8, @tagName(tokens[1]), "text") or
                     !eql(u8, @tagName(tokens[2]), "dot")
                 ) {
-                    return Expr.ParseError.SyntaxError;
+                    return Self.ParseError.SyntaxError;
                 }
-                return Expr.newAbstraction(
+                return Self.newAbstraction(
                     tokens[1].text,
-                    &(try Expr.parseTokens(tokens[3..])),
+                    &(try Self.parseTokens(tokens[3..])),
                 );
             },
-            else => return Expr.ParseError.SyntaxError,
+            else => return Self.ParseError.SyntaxError,
         }
     }
 };
 
 pub const Cmd = union(enum) {
+    const Self = @This();
+
     const ParseError = error{
         InvalidCommand,
     };
@@ -202,10 +206,10 @@ pub const Cmd = union(enum) {
     read: []const u8,
     write: []const u8,
 
-    fn parseStr(string: []const u8) Cmd.ParseError!Cmd {
+    fn parseStr(string: []const u8) Self.ParseError!Self {
         return switch (string[0]) {
-            'q' => Cmd{ .quit = 0 },
-            'h' => Cmd{ .help = 0 },
+            'q' => Self{ .quit = 0 },
+            'h' => Self{ .help = 0 },
             'r', 'w' => {
                 var i: usize = 1;
                 const body = while (i < string.len): (i += 1) {
@@ -213,22 +217,28 @@ pub const Cmd = union(enum) {
                         break string[i..];
                 } else "";
                 return switch (string[0]) {
-                    'r' => Cmd{ .read = body },
-                    'w' => Cmd{ .write = body },
+                    'r' => Self{ .read = body },
+                    'w' => Self{ .write = body },
                     else => unreachable,
                 };
             },
-            else => Cmd.ParseError.InvalidCommand,
+            else => Self.ParseError.InvalidCommand,
         };
     }
 };
 
 pub const FullExpr = union(enum) {
-    const ParseError = Expr.ParseError || Cmd.ParseError;
+    const Self = @This();
+
+    const ParseError = Expr.ParseError || Cmd.ParseError || Self.Assignment.ParseError;
     
     pub const Assignment = struct {
+        const ParseError = error{
+            ValueNotAbstraction,
+        };
+
         alias: []const u8,
-        expression: Expr,
+        abstraction: Expr.Abstraction,
     };
 
     expression: Expr,
@@ -236,11 +246,11 @@ pub const FullExpr = union(enum) {
     assignment: Assignment,
     empty,
 
-    pub fn parseLexTokens(tokens: []const LexToken) FullExpr.ParseError!FullExpr {
+    pub fn parseLexTokens(tokens: []const LexToken) Self.ParseError!Self {
         if (tokens.len == 0) {
-            return FullExpr.empty;
+            return Self.empty;
         } else if (eql(u8, @tagName(tokens[0]), "dot")) {
-            return FullExpr{
+            return Self{
                 .command = try Cmd.parseStr(tokens[1].text),
             };
         } else if (
@@ -248,14 +258,19 @@ pub const FullExpr = union(enum) {
             eql(u8, @tagName(tokens[0]), "text") and
             eql(u8, @tagName(tokens[1]), "equals")
         ) {
-            return FullExpr{
-                .assignment = Assignment{
-                    .alias = tokens[0].text,
-                    .expression = try Expr.parseTokens(tokens[2..]),
-                },
-            };
+            const expression = try Expr.parseTokens(tokens[2..]);
+            if (eql(u8, @tagName(expression), "abstraction")) {
+                return Self{
+                    .assignment = Assignment{
+                        .alias = tokens[0].text,
+                        .abstraction = expression.abstraction,
+                    },
+                };
+            } else {
+                return Self.Assignment.ParseError.ValueNotAbstraction;
+            }
         } else {
-            return FullExpr{
+            return Self{
                 .expression = try Expr.parseTokens(tokens),
             };
         }

@@ -40,15 +40,23 @@ pub fn main() !void {
             println("Lexing error: {s}", .{err});
             continue :main;
         };
+        for (tokens.items) |token, index| {
+            println("{d}: {t}", .{index, token});
+        }
         defer LexToken.freeArrayList(tokens);
         alias.replaceAliases(&aliases, tokens.items, general_allocator.allocator()) catch |err| {
             println("Replacing alias error: {s}", .{err});
             continue :main;
         };
+        println("Replaced.", .{});
+        for (tokens.items) |token, index| {
+            println("{d}: {t}", .{index, token});
+        }
         const full_expr = FullExpr.parseLexTokens(tokens.items) catch |err| {
             println("Parsing error: {s}", .{err});
             continue :main;
         };
+        println("Full Expr: {t}", .{full_expr});
         switch (full_expr) {
             FullExpr.expression => |*expression| println("{any}", .{expression.*}),
             FullExpr.command => |*command| {
@@ -60,9 +68,10 @@ pub fn main() !void {
                 }
             },
             FullExpr.assignment => |*assignment| {
+                println("{s} = {any}", .{assignment.*.alias, assignment.*.abstraction});
                 aliases.putNoClobber(
                     assignment.*.alias,
-                    assignment.*.expression
+                    assignment.*.abstraction,
                 ) catch |err| {
                     println("Creating alias error: {s}", .{err});
                     continue :main;
