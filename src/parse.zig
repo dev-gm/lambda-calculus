@@ -182,7 +182,6 @@ pub const Expr = union(enum) {
                 } else if (aliases.get(text.*)) |abstraction| {
                     var abstraction_expr = Self{ .abstraction = abstraction };
                     const IncrementBindings = struct {
-
                         fn matches(self: Self) bool {
                             return eql(u8, @tagName(self), "binding");
                         }
