@@ -1,11 +1,11 @@
 const std = @import("std");
 const eql = std.mem.eql;
 const ArrayList = std.ArrayList;
+const StringHashMap = std.StringHashMap;
 
 pub const LexToken = union(enum) {
     const Self = @This();
 
-    abstraction: Expr.Abstraction,
     group: ArrayList(Self),
     text: []const u8,
     lambda,
@@ -96,83 +96,94 @@ pub const Expr = union(enum) {
     const ParseError = error{
         EmptyExpr,
         SyntaxError,
-    };    
+    };
 
-    const Variable = []const u8;
-
-    fn newVariable(variable: Variable) Self {
-        return Self{ .variable = variable };
-    }
+    const Variable = usize; // each var in context is given unique identifier within context
 
     pub const Abstraction = struct {
         variable: Variable,
         expression: *const Self,
-    };
 
-    fn newAbstraction(variable: Variable, expression: *const Self) Self {
-        return Self{
-            .abstraction = Abstraction{
-                .variable = variable,
-                .expression = expression,
-            },
-        };
-    }
+        fn newExpr(variable: Variable, expression: *const Self) Self {
+            return Self{
+                .abstraction = Self{
+                    .variable = variable,
+                    .expression = expression,
+                },
+            };
+        }
+    };
 
     const Application = struct {
         abstraction: *const Self,
         argument: *const Self,
-    };
 
-    fn newApplication(abstraction: *const Self, argument: *const Self) Self {
-        return Self{
-            .application = Application{
-                .abstraction = abstraction,
-                .argument = argument,
-            },
-        };
-    }
+        fn newExpr(abstraction: *const Self, argument: *const Self) Self {
+            return Self{
+                .application = Application{
+                    .abstraction = abstraction,
+                    .argument = argument,
+                },
+            };
+        }
+    };
 
     variable: Variable,
     abstraction: Abstraction,
     application: Application,
 
-    fn parseTokens(tokens: []const LexToken) Self.ParseError!Self {
+    fn parseTokens(
+        tokens: []const LexToken,
+        aliases: *const StringHashMap(Self.Abstraction),
+        allocator: anytype,
+    ) Self.ParseError!Self {
+        var vars = ArrayList([]const u8).init(allocator);
+        defer vars.deinit();
+        return Self.innerParseTokens(tokens, &vars, aliases);
+    }
+
+    fn innerParseTokens(
+        tokens: []const LexToken,
+        vars: *ArrayList([]const u8),
+        aliases: *const StringHashMap(Self.Abstraction),
+    ) Self.ParseError!Self {
         if (tokens.len == 0) {
             return Self.ParseError.EmptyExpr;
         }
         switch (tokens[0]) {
-            LexToken.abstraction => |*abstraction| {
-                const expression = Self{
-                    .abstraction = abstraction.*,
-                };
-                if (tokens.len == 1) {
-                    return expression;
-                } else {
-                    return Self.newApplication(
-                        &expression,
-                        &(try Self.parseTokens(tokens[1..])),
-                    );
-                }
-            },
             LexToken.group => |*group| {
-                const group_expr = try Self.parseTokens(group.*.items);
+                const group_expr = try Self.innerParseTokens(group.*.items);
                 if (tokens.len == 1) {
                     return group_expr;
                 } else {
-                    return Self.newApplication(
+                    return Self.Application.newExpr(
                         &group_expr,
-                        &(try Self.parseTokens(tokens[1..])),
+                        &(try Self.innerParseTokens(tokens[1..], vars, aliases)),
                     );
                 }
             },
             LexToken.text => |*text| {
-                const variable_expr = Self.newVariable(text.*);
-                if (tokens.len == 1) {
-                    return variable_expr;
+                var i = vars.items.len - 1;
+                const is_var = while (i >= 0) : (i += 1) {
+                    if (eql(u8, vars.items[i], text.*))
+                        break true;
+                } else false;
+                if (is_var) {
+                    return Self{ .variable = text.* };
+                } else if (aliases.get(text.*)) |abstraction| {
+                    const abstraction_expr = Self{ .abstraction = abstraction };
+                    if (tokens.len == 1) {
+                        return abstraction_expr;
+                    } else {
+                        return Self.Application.newExpr(
+                            &abstraction_expr,
+                            &(try Self.innerParseTokens(tokens[1..], vars, aliases)),
+                        );
+                    }
                 } else {
-                    return Self.newApplication(
-                        &variable_expr,
-                        &(try Self.parseTokens(tokens[1..])),
+                    return Self.Application.newExpr(
+                        &Self{ .variable = text.* },
+                        &(try Self.innerParseTokens(tokens[1..])),
                     );
                 }
             },
@@ -183,11 +194,13 @@ pub const Expr = union(enum) {
                     !eql(u8, @tagName(tokens[2]), "dot")
                 ) {
                     return Self.ParseError.SyntaxError;
+                } else {
+                    vars.append(tokens[1].text);
+                    return Self.Abstraction.newExpr(
+                        vars.items.len - 1,
+                        &(try Self.innerParseTokens(tokens[3..], vars, aliases)),
+                    );
                 }
-                return Self.newAbstraction(
-                    tokens[1].text,
-                    &(try Self.parseTokens(tokens[3..])),
-                );
             },
             else => return Self.ParseError.SyntaxError,
         }
@@ -212,7 +225,7 @@ pub const Cmd = union(enum) {
             'h' => Self{ .help = 0 },
             'r', 'w' => {
                 var i: usize = 1;
-                const body = while (i < string.len): (i += 1) {
+                const body = while (i < string.len) : (i += 1) {
                     if (string[i] != ' ' and string[i] != '\t')
                         break string[i..];
                 } else "";
@@ -246,7 +259,11 @@ pub const FullExpr = union(enum) {
     assignment: Assignment,
     empty,
 
-    pub fn parseLexTokens(tokens: []const LexToken) Self.ParseError!Self {
+    pub fn parseLexTokens(
+        tokens: []const LexToken,
+        aliases: StringHashMap(Expr.Abstraction),
+        allocator: anytype,
+    ) Self.ParseError!Self {
         if (tokens.len == 0) {
             return Self.empty;
         } else if (eql(u8, @tagName(tokens[0]), "dot")) {
@@ -258,7 +275,7 @@ pub const FullExpr = union(enum) {
             eql(u8, @tagName(tokens[0]), "text") and
             eql(u8, @tagName(tokens[1]), "equals")
         ) {
-            const expression = try Expr.parseTokens(tokens[2..]);
+            const expression = try Expr.parseTokens(tokens[2..], aliases, allocator);
             if (eql(u8, @tagName(expression), "abstraction")) {
                 return Self{
                     .assignment = Assignment{
