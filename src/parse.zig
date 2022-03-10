@@ -85,7 +85,7 @@ pub const LexToken = union(enum) {
 // {} => EmptyExpr
 // {body: group} => PARSE($body)
 // {body: group}{rest: ..} => application(PARSE($body), PARSE($rest))
-// {var: text} => variable($var)
+// {var: text} => binding($var)
 // {var: text}{rest: ..} => application($var, PARSE($rest))
 // {lambda}{arg: text}{dot}{rest: ..} => abstraction($arg, PARSE($rest))
 // else => SyntaxError
@@ -95,7 +95,7 @@ pub const Expr = union(enum) {
     const ParseError = error{
         EmptyExpr,
         SyntaxError,
-        VarNotFound,
+        BindingNotFound,
         OutOfMemory,
     };
 
@@ -103,17 +103,18 @@ pub const Expr = union(enum) {
         argument: usize,
         expression: *Self,
 
-        fn newExpr(variable: Variable, expression: *Self) Self {
+        fn newExpr(bindings: usize, expression: *Self) Self {
             return Self{
                 .abstraction = Self.Abstraction{
-                    .variable = variable,
+                    .bindings = bindings,
                     .expression = expression,
                 },
             };
         }
 
         fn evaluate(self: Abstraction, argument: *Self) Self {
-            
+            _ = self;
+            _ = argument;
         }
     };
 
@@ -178,12 +179,12 @@ pub const Expr = union(enum) {
                     break :identifier null;
                 };
                 if (var_identifier) |identifier| {
-                    return Self{ .variable = identifier };
+                    return Self{ .binding = identifier };
                 } else if (aliases.get(text.*)) |abstraction| {
                     var abstraction_expr = Self{ .abstraction = abstraction };
                     const IncrementBindings = struct {
-                        fn matches(self: Self) bool {
-                            return eql(u8, @tagName(self), "binding");
+                        fn matches(self: *const Self) bool {
+                            return eql(u8, @tagName(self.*), "binding");
                         }
 
                         fn apply(self: *Self, args: anytype) void {
@@ -192,7 +193,7 @@ pub const Expr = union(enum) {
                             }
                         }
                     };
-                    _ = abstraction_expr.applyToAllInstances(
+                    _ = abstraction_expr.applyToAllMatching(
                         IncrementBindings.matches,
                         IncrementBindings.apply,
                         .{vars.items.len},
@@ -206,7 +207,7 @@ pub const Expr = union(enum) {
                         );
                     }
                 } else {
-                    return Self.ParseError.VarNotFound;
+                    return Self.ParseError.BindingNotFound;
                 }
             },
             LexToken.lambda => {
@@ -236,14 +237,14 @@ pub const Expr = union(enum) {
     fn applyToAllMatching(
         self: *Self,
         matches: fn(*const Self) bool,
-        apply: fn(*Self, anytype) void,
+        comptime apply: fn(*Self, anytype) void,
         apply_args: anytype,
     ) bool {
         if (matches(self)) {
             apply(self, apply_args);
             return true;
         }
-        return switch (self) {
+        return switch (self.*) {
             Self.abstraction => |*abstraction|
                 abstraction.*.expression.applyToAllMatching(matches, apply, apply_args),
             Self.application => |*application| (
