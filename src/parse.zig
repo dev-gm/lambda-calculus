@@ -180,8 +180,24 @@ pub const Expr = union(enum) {
                 if (var_identifier) |identifier| {
                     return Self{ .variable = identifier };
                 } else if (aliases.get(text.*)) |abstraction| {
-                    for 
                     var abstraction_expr = Self{ .abstraction = abstraction };
+                    const IncrementBindings = struct {
+
+                        fn matches(self: Self) bool {
+                            return eql(u8, @tagName(self), "binding");
+                        }
+
+                        fn apply(self: *Self, args: anytype) void {
+                            if (self.*) |*binding| {
+                                binding.* += args[0];
+                            }
+                        }
+                    };
+                    _ = abstraction_expr.applyToAllInstances(
+                        IncrementBindings.matches,
+                        IncrementBindings.apply,
+                        .{vars.items.len},
+                    );
                     if (tokens.len == 1) {
                         return abstraction_expr;
                     } else {
@@ -217,8 +233,27 @@ pub const Expr = union(enum) {
         }
     }
 
-    // returns if anything has been replaced
-    fn replaceAll(self: *Self, search: *const Expr, replace: *const Expr) bool {}
+    // returns if the function has been called at all
+    fn applyToAllMatching(
+        self: *Self,
+        matches: fn(*const Self) bool,
+        apply: fn(*Self, anytype) void,
+        apply_args: anytype,
+    ) bool {
+        if (matches(self)) {
+            apply(self, apply_args);
+            return true;
+        }
+        return switch (self) {
+            Self.abstraction => |*abstraction|
+                abstraction.*.expression.applyToAllMatching(matches, apply, apply_args),
+            Self.application => |*application| (
+                 application.*.abstraction.applyToMatching(matches, apply, apply_args) || 
+                 application.*.argument.applyToMatching(matches, apply, apply_args)
+            ),
+            else => false,
+        };
+    }
 };
 
 pub const Cmd = union(enum) {
