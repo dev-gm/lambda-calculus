@@ -166,7 +166,7 @@ pub const Expr = union(enum) {
             },
             LexToken.text => |*text| {
                 var i = vars.items.len - 1;
-                const var_identifier = while (i >= 0) : (i += 1) {
+                const var_identifier = while (i > 0) : (i -= 1) {
                     if (eql(u8, vars.items[i], text.*))
                         break i;
                 } else null;
