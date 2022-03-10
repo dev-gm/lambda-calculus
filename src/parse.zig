@@ -99,10 +99,8 @@ pub const Expr = union(enum) {
         OutOfMemory,
     };
 
-    const Variable = usize; // each var in context is given unique identifier within context
-
     pub const Abstraction = struct {
-        variable: Variable,
+        argument: usize,
         expression: *Self,
 
         fn newExpr(variable: Variable, expression: *Self) Self {
@@ -112,6 +110,10 @@ pub const Expr = union(enum) {
                     .expression = expression,
                 },
             };
+        }
+
+        fn evaluate(self: Abstraction, argument: *Self) Self {
+            
         }
     };
 
@@ -129,7 +131,7 @@ pub const Expr = union(enum) {
         }
     };
 
-    variable: Variable,
+    binding: usize,
     abstraction: Abstraction,
     application: Application,
 
@@ -169,14 +171,16 @@ pub const Expr = union(enum) {
                     if (vars.items.len == 0)
                         break :identifier null;
                     var i = vars.items.len - 1;
-                    break :identifier while (i >= 0) : (i -= 1) {
+                    while (i >= 0) : (i -= 1) {
                         if (eql(u8, vars.items[i], text.*))
-                            break i;
-                    } else null;
+                            break :identifier i;
+                    }
+                    break :identifier null;
                 };
                 if (var_identifier) |identifier| {
                     return Self{ .variable = identifier };
                 } else if (aliases.get(text.*)) |abstraction| {
+                    for 
                     var abstraction_expr = Self{ .abstraction = abstraction };
                     if (tokens.len == 1) {
                         return abstraction_expr;
@@ -212,6 +216,9 @@ pub const Expr = union(enum) {
             else=> return Self.ParseError.SyntaxError,
         }
     }
+
+    // returns if anything has been replaced
+    fn replaceAll(self: *Self, search: *const Expr, replace: *const Expr) bool {}
 };
 
 pub const Cmd = union(enum) {
