@@ -96,6 +96,8 @@ pub const Expr = union(enum) {
     const ParseError = error{
         EmptyExpr,
         SyntaxError,
+        VarNotFound,
+        OutOfMemory,
     };
 
     const Variable = usize; // each var in context is given unique identifier within context
@@ -106,7 +108,7 @@ pub const Expr = union(enum) {
 
         fn newExpr(variable: Variable, expression: *const Self) Self {
             return Self{
-                .abstraction = Self{
+                .abstraction = Self.Abstraction{
                     .variable = variable,
                     .expression = expression,
                 },
@@ -152,7 +154,7 @@ pub const Expr = union(enum) {
         }
         switch (tokens[0]) {
             LexToken.group => |*group| {
-                const group_expr = try Self.innerParseTokens(group.*.items);
+                const group_expr = try Self.innerParseTokens(group.*.items, vars, aliases);
                 if (tokens.len == 1) {
                     return group_expr;
                 } else {
@@ -164,12 +166,12 @@ pub const Expr = union(enum) {
             },
             LexToken.text => |*text| {
                 var i = vars.items.len - 1;
-                const is_var = while (i >= 0) : (i += 1) {
+                const var_identifier = while (i >= 0) : (i += 1) {
                     if (eql(u8, vars.items[i], text.*))
-                        break true;
-                } else false;
-                if (is_var) {
-                    return Self{ .variable = text.* };
+                        break i;
+                } else null;
+                if (var_identifier) |identifier| {
+                    return Self{ .variable = identifier };
                 } else if (aliases.get(text.*)) |abstraction| {
                     const abstraction_expr = Self{ .abstraction = abstraction };
                     if (tokens.len == 1) {
@@ -181,10 +183,7 @@ pub const Expr = union(enum) {
                         );
                     }
                 } else {
-                    return Self.Application.newExpr(
-                        &Self{ .variable = text.* },
-                        &(try Self.innerParseTokens(tokens[1..])),
-                    );
+                    return Self.ParseError.VarNotFound;
                 }
             },
             LexToken.lambda => {
@@ -195,7 +194,7 @@ pub const Expr = union(enum) {
                 ) {
                     return Self.ParseError.SyntaxError;
                 } else {
-                    vars.append(tokens[1].text);
+                    try vars.append(tokens[1].text);
                     return Self.Abstraction.newExpr(
                         vars.items.len - 1,
                         &(try Self.innerParseTokens(tokens[3..], vars, aliases)),
@@ -261,7 +260,7 @@ pub const FullExpr = union(enum) {
 
     pub fn parseLexTokens(
         tokens: []const LexToken,
-        aliases: StringHashMap(Expr.Abstraction),
+        aliases: *const StringHashMap(Expr.Abstraction),
         allocator: anytype,
     ) Self.ParseError!Self {
         if (tokens.len == 0) {
@@ -288,7 +287,7 @@ pub const FullExpr = union(enum) {
             }
         } else {
             return Self{
-                .expression = try Expr.parseTokens(tokens),
+                .expression = try Expr.parseTokens(tokens, aliases, allocator),
             };
         }
     }

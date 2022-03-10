@@ -3,7 +3,6 @@ const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const StringHashMap = std.StringHashMap;
 
 const parse = @import("./parse.zig");
-const alias = @import("./alias.zig");
 
 const LexToken = parse.LexToken;
 const Cmd = parse.Cmd;
@@ -44,15 +43,11 @@ pub fn main() !void {
             println("{d}: {t}", .{index, token});
         }
         defer LexToken.freeArrayList(tokens);
-        alias.replaceAliases(&aliases, tokens.items, general_allocator.allocator()) catch |err| {
-            println("Replacing alias error: {s}", .{err});
-            continue :main;
-        };
-        println("Replaced.", .{});
-        for (tokens.items) |token, index| {
-            println("{d}: {t}", .{index, token});
-        }
-        const full_expr = FullExpr.parseLexTokens(tokens.items) catch |err| {
+        const full_expr = FullExpr.parseLexTokens(
+            tokens.items,
+            &aliases,
+            general_allocator.allocator()
+        ) catch |err| {
             println("Parsing error: {s}", .{err});
             continue :main;
         };
