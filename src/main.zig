@@ -9,7 +9,7 @@ const Cmd = parse.Cmd;
 const Expr = parse.Expr;
 const FullExpr = parse.FullExpr;
 
-pub fn println(comptime fmt: []const u8, args: anytype) void {
+pub inline fn println(comptime fmt: []const u8, args: anytype) void {
     std.debug.print(fmt ++ "\n", args);
 }
 

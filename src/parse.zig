@@ -89,7 +89,6 @@ pub const LexToken = union(enum) {
 // {var: text}{rest: ..} => application($var, PARSE($rest))
 // {lambda}{arg: text}{dot}{rest: ..} => abstraction($arg, PARSE($rest))
 // else => SyntaxError
-
 pub const Expr = union(enum) {
     const Self = @This();
 
@@ -104,9 +103,9 @@ pub const Expr = union(enum) {
 
     pub const Abstraction = struct {
         variable: Variable,
-        expression: *const Self,
+        expression: *Self,
 
-        fn newExpr(variable: Variable, expression: *const Self) Self {
+        fn newExpr(variable: Variable, expression: *Self) Self {
             return Self{
                 .abstraction = Self.Abstraction{
                     .variable = variable,
@@ -117,10 +116,10 @@ pub const Expr = union(enum) {
     };
 
     const Application = struct {
-        abstraction: *const Self,
-        argument: *const Self,
+        abstraction: *Self,
+        argument: *Self,
 
-        fn newExpr(abstraction: *const Self, argument: *const Self) Self {
+        fn newExpr(abstraction: *Self, argument: *Self) Self {
             return Self{
                 .application = Application{
                     .abstraction = abstraction,
@@ -152,9 +151,10 @@ pub const Expr = union(enum) {
         if (tokens.len == 0) {
             return Self.ParseError.EmptyExpr;
         }
+        std.debug.print("innerParseTokens: vars = {any}\n", .{vars.*.items});
         switch (tokens[0]) {
             LexToken.group => |*group| {
-                const group_expr = try Self.innerParseTokens(group.*.items, vars, aliases);
+                var group_expr = try Self.innerParseTokens(group.*.items, vars, aliases);
                 if (tokens.len == 1) {
                     return group_expr;
                 } else {
@@ -165,15 +165,19 @@ pub const Expr = union(enum) {
                 }
             },
             LexToken.text => |*text| {
-                var i = vars.items.len - 1;
-                const var_identifier = while (i > 0) : (i -= 1) {
-                    if (eql(u8, vars.items[i], text.*))
-                        break i;
-                } else null;
+                const var_identifier = identifier: {
+                    if (vars.items.len == 0)
+                        break :identifier null;
+                    var i = vars.items.len - 1;
+                    break :identifier while (i >= 0) : (i -= 1) {
+                        if (eql(u8, vars.items[i], text.*))
+                            break i;
+                    } else null;
+                };
                 if (var_identifier) |identifier| {
                     return Self{ .variable = identifier };
                 } else if (aliases.get(text.*)) |abstraction| {
-                    const abstraction_expr = Self{ .abstraction = abstraction };
+                    var abstraction_expr = Self{ .abstraction = abstraction };
                     if (tokens.len == 1) {
                         return abstraction_expr;
                     } else {
@@ -187,21 +191,25 @@ pub const Expr = union(enum) {
                 }
             },
             LexToken.lambda => {
+                std.debug.print("met lambda\n", .{});
                 if (
                     tokens.len < 4 or
                     !eql(u8, @tagName(tokens[1]), "text") or
                     !eql(u8, @tagName(tokens[2]), "dot")
                 ) {
                     return Self.ParseError.SyntaxError;
-                } else {
-                    try vars.append(tokens[1].text);
-                    return Self.Abstraction.newExpr(
-                        vars.items.len - 1,
-                        &(try Self.innerParseTokens(tokens[3..], vars, aliases)),
-                    );
                 }
+                try vars.append(tokens[1].text);
+                defer _ = vars.pop();
+                std.debug.print("tokens[3..] = {string}\n", .{tokens[3..]});
+                const abs = Self.Abstraction.newExpr(
+                    vars.items.len - 1,
+                    &(try Self.innerParseTokens(tokens[3..], vars, aliases)),
+                );
+                std.debug.print("{any}\n", .{abs});
+                return abs;
             },
-            else => return Self.ParseError.SyntaxError,
+            else=> return Self.ParseError.SyntaxError,
         }
     }
 };
