@@ -103,10 +103,10 @@ pub const Expr = union(enum) {
         argument: usize,
         expression: *Self,
 
-        fn newExpr(bindings: usize, expression: *Self) Self {
+        fn newExpr(argument: usize, expression: *Self) Self {
             return Self{
                 .abstraction = Self.Abstraction{
-                    .bindings = bindings,
+                    .argument = argument,
                     .expression = expression,
                 },
             };
@@ -141,40 +141,42 @@ pub const Expr = union(enum) {
         aliases: *const StringHashMap(Self.Abstraction),
         allocator: anytype,
     ) Self.ParseError!Self {
-        var vars = ArrayList([]const u8).init(allocator);
-        defer vars.deinit();
-        return Self.innerParseTokens(tokens, &vars, aliases);
+        var bindings = ArrayList([]const u8).init(allocator);
+        defer bindings.deinit();
+        return Self.innerParseTokens(tokens, &bindings, aliases);
     }
 
     fn innerParseTokens(
         tokens: []const LexToken,
-        vars: *ArrayList([]const u8),
+        bindings: *ArrayList([]const u8),
         aliases: *const StringHashMap(Self.Abstraction),
     ) Self.ParseError!Self {
         if (tokens.len == 0) {
             return Self.ParseError.EmptyExpr;
         }
-        std.debug.print("innerParseTokens: vars = {any}\n", .{vars.*.items});
+        std.debug.print("innerParseTokens: bindings = {any}\n", .{bindings.*.items});
         switch (tokens[0]) {
             LexToken.group => |*group| {
-                var group_expr = try Self.innerParseTokens(group.*.items, vars, aliases);
+                var group_expr = try Self.innerParseTokens(group.*.items, bindings, aliases);
                 if (tokens.len == 1) {
                     return group_expr;
                 } else {
                     return Self.Application.newExpr(
                         &group_expr,
-                        &(try Self.innerParseTokens(tokens[1..], vars, aliases)),
+                        &(try Self.innerParseTokens(tokens[1..], bindings, aliases)),
                     );
                 }
             },
             LexToken.text => |*text| {
                 const var_identifier = identifier: {
-                    if (vars.items.len == 0)
+                    if (bindings.items.len == 0)
                         break :identifier null;
-                    var i = vars.items.len - 1;
+                    var i = bindings.items.len - 1;
                     while (i >= 0) : (i -= 1) {
-                        if (eql(u8, vars.items[i], text.*))
+                        if (eql(u8, bindings.items[i], text.*))
                             break :identifier i;
+                        if (i == 0)
+                            break :identifier null;
                     }
                     break :identifier null;
                 };
@@ -183,27 +185,29 @@ pub const Expr = union(enum) {
                 } else if (aliases.get(text.*)) |abstraction| {
                     var abstraction_expr = Self{ .abstraction = abstraction };
                     const IncrementBindings = struct {
+                        offset: usize,
+
                         fn matches(self: *const Self) bool {
                             return eql(u8, @tagName(self.*), "binding");
                         }
 
-                        fn apply(self: *Self, args: anytype) void {
-                            if (self.*) |*binding| {
-                                binding.* += args[0];
+                        fn apply(self: *const @This(), expr: *Self) void {
+                            if (eql(u8, @tagName(expr.*), "binding")) {
+                                std.debug.print("binding: {any}\n", .{expr.*});
+                                expr.*.binding += self.offset;
                             }
                         }
                     };
                     _ = abstraction_expr.applyToAllMatching(
-                        IncrementBindings.matches,
-                        IncrementBindings.apply,
-                        .{vars.items.len},
+                        IncrementBindings,
+                        IncrementBindings{ .offset = bindings.items.len },
                     );
                     if (tokens.len == 1) {
                         return abstraction_expr;
                     } else {
                         return Self.Application.newExpr(
                             &abstraction_expr,
-                            &(try Self.innerParseTokens(tokens[1..], vars, aliases)),
+                            &(try Self.innerParseTokens(tokens[1..], bindings, aliases)),
                         );
                     }
                 } else {
@@ -219,12 +223,12 @@ pub const Expr = union(enum) {
                 ) {
                     return Self.ParseError.SyntaxError;
                 }
-                try vars.append(tokens[1].text);
-                defer _ = vars.pop();
+                try bindings.append(tokens[1].text);
+                defer _ = bindings.pop();
                 std.debug.print("tokens[3..] = {string}\n", .{tokens[3..]});
                 const abs = Self.Abstraction.newExpr(
-                    vars.items.len - 1,
-                    &(try Self.innerParseTokens(tokens[3..], vars, aliases)),
+                    bindings.items.len - 1,
+                    &(try Self.innerParseTokens(tokens[3..], bindings, aliases)),
                 );
                 std.debug.print("{any}\n", .{abs});
                 return abs;
@@ -236,20 +240,19 @@ pub const Expr = union(enum) {
     // returns if the function has been called at all
     fn applyToAllMatching(
         self: *Self,
-        matches: fn(*const Self) bool,
-        comptime apply: fn(*Self, anytype) void,
-        apply_args: anytype,
+        comptime T: type,
+        args: T,
     ) bool {
-        if (matches(self)) {
-            apply(self, apply_args);
+        if (T.matches(self)) {
+            args.apply(self);
             return true;
         }
         return switch (self.*) {
             Self.abstraction => |*abstraction|
-                abstraction.*.expression.applyToAllMatching(matches, apply, apply_args),
+                abstraction.*.expression.applyToAllMatching(T, args),
             Self.application => |*application| (
-                 application.*.abstraction.applyToMatching(matches, apply, apply_args) || 
-                 application.*.argument.applyToMatching(matches, apply, apply_args)
+                application.*.abstraction.applyToAllMatching(T, args) or
+                application.*.argument.applyToAllMatching(T, args)
             ),
             else => false,
         };
