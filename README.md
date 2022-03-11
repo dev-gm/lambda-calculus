@@ -7,6 +7,6 @@ A command-line REPL for lambda calculus, with support for function aliases and s
 - Parse expressions (DONE)
 - Parse assignments (DONE)
 - Process expressions
-- Process assignments
+- Process assignments (DONE)
 - Read state from and write state to files
 - Stop using std.debug.print
