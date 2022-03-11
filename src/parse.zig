@@ -106,8 +106,10 @@ pub const Expr = union(enum) {
     }
 
     fn initBinding(binding: usize, allocator: anytype) AllocationError!*Self {
-        var expr = Self{ .binding = binding };
-        return expr.initPtr(allocator);
+        return Expr.initPtr(
+            Self{ .binding = binding },
+            allocator,
+        );
     }
 
     pub const Abstraction = struct {
@@ -115,13 +117,12 @@ pub const Expr = union(enum) {
         expression: *Self,
 
         fn initExpr(argument: usize, expression: *Self, allocator: anytype) AllocationError!*Self {
-            var expr = Self{
+            return Expr.initPtr(Self{
                 .abstraction = Self.Abstraction{
                     .argument = argument,
                     .expression = expression,
                 },
-            };
-            return expr.initPtr(allocator);
+            }, allocator);
         }
     };
 
@@ -130,13 +131,12 @@ pub const Expr = union(enum) {
         argument: *Self,
 
         fn initExpr(abstraction: *Self, argument: *Self, allocator: anytype) AllocationError!*Self {
-            var expr = Self{
+            return Expr.initPtr(Self{
                 .application = Application{
                     .abstraction = abstraction,
                     .argument = argument,
                 },
-            };
-            return expr.initPtr(allocator);
+            }, allocator);
         }
     };
 
@@ -148,10 +148,10 @@ pub const Expr = union(enum) {
         tokens: []const LexToken,
         aliases: *const StringHashMap(Self.Abstraction),
         allocator: anytype,
-    ) Self.ParseError!Self {
+    ) Self.ParseError!*Self {
         var bindings = ArrayList([]const u8).init(allocator);
         defer bindings.deinit();
-        return (try Self.innerParseTokens(tokens, &bindings, aliases, allocator)).*;
+        return Self.innerParseTokens(tokens, &bindings, aliases, allocator);
     }
 
     fn innerParseTokens(
@@ -189,12 +189,9 @@ pub const Expr = union(enum) {
                 if (binding_identifier) |identifier| {
                     return Self.initBinding(identifier, allocator);
                 } else if (aliases.get(text.*)) |abstraction| {
-                    const abstraction_expr = abstraction: {
-                        var expr = Self{
-                            .abstraction = abstraction
-                        };
-                        break :abstraction try expr.initPtr(allocator);
-                    };
+                    const abstraction_expr = try Expr.initPtr(Self{
+                        .abstraction = abstraction
+                    }, allocator);
                     const IncrementBindings = struct {
                         offset: usize,
 
@@ -311,10 +308,10 @@ pub const FullExpr = union(enum) {
         };
 
         alias: []const u8,
-        abstraction: Expr.Abstraction,
+        expression: *Expr, // assume this is abstraction
     };
 
-    expression: Expr,
+    expression: *Expr,
     command: Cmd,
     assignment: Assignment,
     empty,
@@ -336,11 +333,11 @@ pub const FullExpr = union(enum) {
             eql(u8, @tagName(tokens[1]), "equals")
         ) {
             const expression = try Expr.parseTokens(tokens[2..], aliases, allocator);
-            if (eql(u8, @tagName(expression), "abstraction")) {
+            if (eql(u8, @tagName(expression.*), "abstraction")) {
                 return Self{
                     .assignment = Assignment{
                         .alias = tokens[0].text,
-                        .abstraction = expression.abstraction,
+                        .expression = expression,
                     },
                 };
             } else {
@@ -353,4 +350,3 @@ pub const FullExpr = union(enum) {
         }
     }
 };
-

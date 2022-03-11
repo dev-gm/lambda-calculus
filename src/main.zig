@@ -40,7 +40,8 @@ pub fn main() !void {
             println("Read error: {s}", .{err});
             continue :main;
         };
-        tokens = LexToken.parseStr(line.?, general_allocator.allocator()) catch |err| {
+        const allocator = general_allocator.allocator();
+        tokens = LexToken.parseStr(line.?, allocator) catch |err| {
             println("Lexing error: {s}", .{err});
             continue :main;
         };
@@ -48,7 +49,7 @@ pub fn main() !void {
         const full_expr = FullExpr.parseLexTokens(
             tokens.items,
             &aliases,
-            general_allocator.allocator()
+            allocator,
         ) catch |err| {
             println("Parsing error: {s}", .{err});
             continue :main;
