@@ -10,3 +10,4 @@ A command-line REPL for lambda calculus, with support for function aliases and s
 - Process assignments (DONE)
 - Read state from and write state to files
 - Stop using std.debug.print
+- Add help text
