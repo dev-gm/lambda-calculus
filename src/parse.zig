@@ -92,29 +92,36 @@ pub const LexToken = union(enum) {
 pub const Expr = union(enum) {
     const Self = @This();
 
+    const AllocationError = error{OutOfMemory};
+
     const ParseError = error{
-        EmptyExpr,
         SyntaxError,
         BindingNotFound,
-        OutOfMemory,
-    };
+    } || Self.AllocationError;
+
+    fn initPtr(self: Self, allocator: anytype) AllocationError!*Self {
+        var memory = try allocator.create(Self);
+        memory.* = self;
+        return memory;
+    }
+
+    fn initBinding(binding: usize, allocator: anytype) AllocationError!*Self {
+        var expr = Self{ .binding = binding };
+        return expr.initPtr(allocator);
+    }
 
     pub const Abstraction = struct {
         argument: usize,
         expression: *Self,
 
-        fn newExpr(argument: usize, expression: *Self) Self {
-            return Self{
+        fn initExpr(argument: usize, expression: *Self, allocator: anytype) AllocationError!*Self {
+            var expr = Self{
                 .abstraction = Self.Abstraction{
                     .argument = argument,
                     .expression = expression,
                 },
             };
-        }
-
-        fn evaluate(self: Abstraction, argument: *Self) Self {
-            _ = self;
-            _ = argument;
+            return expr.initPtr(allocator);
         }
     };
 
@@ -122,13 +129,14 @@ pub const Expr = union(enum) {
         abstraction: *Self,
         argument: *Self,
 
-        fn newExpr(abstraction: *Self, argument: *Self) Self {
-            return Self{
+        fn initExpr(abstraction: *Self, argument: *Self, allocator: anytype) AllocationError!*Self {
+            var expr = Self{
                 .application = Application{
                     .abstraction = abstraction,
                     .argument = argument,
                 },
             };
+            return expr.initPtr(allocator);
         }
     };
 
@@ -143,32 +151,30 @@ pub const Expr = union(enum) {
     ) Self.ParseError!Self {
         var bindings = ArrayList([]const u8).init(allocator);
         defer bindings.deinit();
-        return Self.innerParseTokens(tokens, &bindings, aliases);
+        return (try Self.innerParseTokens(tokens, &bindings, aliases, allocator)).*;
     }
 
     fn innerParseTokens(
         tokens: []const LexToken,
         bindings: *ArrayList([]const u8),
         aliases: *const StringHashMap(Self.Abstraction),
-    ) Self.ParseError!Self {
-        if (tokens.len == 0) {
-            return Self.ParseError.EmptyExpr;
-        }
-        std.debug.print("innerParseTokens: bindings = {any}\n", .{bindings.*.items});
+        allocator: anytype,
+    ) Self.ParseError!*Self {
         switch (tokens[0]) {
             LexToken.group => |*group| {
-                var group_expr = try Self.innerParseTokens(group.*.items, bindings, aliases);
+                const group_expr = try Self.innerParseTokens(group.*.items, bindings, aliases, allocator);
                 if (tokens.len == 1) {
                     return group_expr;
                 } else {
-                    return Self.Application.newExpr(
-                        &group_expr,
-                        &(try Self.innerParseTokens(tokens[1..], bindings, aliases)),
+                    return Self.Application.initExpr(
+                        group_expr,
+                        try Self.innerParseTokens(tokens[1..], bindings, aliases, allocator),
+                        allocator,
                     );
                 }
             },
             LexToken.text => |*text| {
-                const var_identifier = identifier: {
+                const binding_identifier = identifier: {
                     if (bindings.items.len == 0)
                         break :identifier null;
                     var i = bindings.items.len - 1;
@@ -180,10 +186,15 @@ pub const Expr = union(enum) {
                     }
                     break :identifier null;
                 };
-                if (var_identifier) |identifier| {
-                    return Self{ .binding = identifier };
+                if (binding_identifier) |identifier| {
+                    return Self.initBinding(identifier, allocator);
                 } else if (aliases.get(text.*)) |abstraction| {
-                    var abstraction_expr = Self{ .abstraction = abstraction };
+                    const abstraction_expr = abstraction: {
+                        var expr = Self{
+                            .abstraction = abstraction
+                        };
+                        break :abstraction try expr.initPtr(allocator);
+                    };
                     const IncrementBindings = struct {
                         offset: usize,
 
@@ -193,7 +204,6 @@ pub const Expr = union(enum) {
 
                         fn apply(self: *const @This(), expr: *Self) void {
                             if (eql(u8, @tagName(expr.*), "binding")) {
-                                std.debug.print("binding: {any}\n", .{expr.*});
                                 expr.*.binding += self.offset;
                             }
                         }
@@ -205,9 +215,10 @@ pub const Expr = union(enum) {
                     if (tokens.len == 1) {
                         return abstraction_expr;
                     } else {
-                        return Self.Application.newExpr(
-                            &abstraction_expr,
-                            &(try Self.innerParseTokens(tokens[1..], bindings, aliases)),
+                        return Self.Application.initExpr(
+                            abstraction_expr,
+                            try Self.innerParseTokens(tokens[1..], bindings, aliases, allocator),
+                            allocator,
                         );
                     }
                 } else {
@@ -215,7 +226,6 @@ pub const Expr = union(enum) {
                 }
             },
             LexToken.lambda => {
-                std.debug.print("met lambda\n", .{});
                 if (
                     tokens.len < 4 or
                     !eql(u8, @tagName(tokens[1]), "text") or
@@ -225,13 +235,11 @@ pub const Expr = union(enum) {
                 }
                 try bindings.append(tokens[1].text);
                 defer _ = bindings.pop();
-                std.debug.print("tokens[3..] = {string}\n", .{tokens[3..]});
-                const abs = Self.Abstraction.newExpr(
+                return Self.Abstraction.initExpr(
                     bindings.items.len - 1,
-                    &(try Self.innerParseTokens(tokens[3..], bindings, aliases)),
+                    try Self.innerParseTokens(tokens[3..], bindings, aliases, allocator),
+                    allocator
                 );
-                std.debug.print("{any}\n", .{abs});
-                return abs;
             },
             else=> return Self.ParseError.SyntaxError,
         }

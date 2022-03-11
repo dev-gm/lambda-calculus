@@ -13,6 +13,11 @@ pub inline fn println(comptime fmt: []const u8, args: anytype) void {
     std.debug.print(fmt ++ "\n", args);
 }
 
+pub inline fn printObj(object: anytype) !void {
+    try std.json.stringify(object, .{ .whitespace = .{} }, std.io.getStdOut().writer());
+    println("", .{});
+}
+
 const INPUT_BUF_SIZE = 1024;
 
 const HELP_STRING = "";
@@ -39,9 +44,6 @@ pub fn main() !void {
             println("Lexing error: {s}", .{err});
             continue :main;
         };
-        for (tokens.items) |token, index| {
-            println("{d}: {t}", .{index, token});
-        }
         defer LexToken.freeArrayList(tokens);
         const full_expr = FullExpr.parseLexTokens(
             tokens.items,
@@ -51,9 +53,8 @@ pub fn main() !void {
             println("Parsing error: {s}", .{err});
             continue :main;
         };
-        println("Full Expr: {t}", .{full_expr});
         switch (full_expr) {
-            FullExpr.expression => |*expression| println("{any}", .{expression.*}),
+            FullExpr.expression => |*expression| try printObj(expression.*),
             FullExpr.command => |*command| {
                 switch (command.*) {
                     Cmd.quit => break :main,
@@ -63,7 +64,6 @@ pub fn main() !void {
                 }
             },
             FullExpr.assignment => |*assignment| {
-                println("{s} = {any}", .{assignment.*.alias, assignment.*.abstraction});
                 aliases.putNoClobber(
                     assignment.*.alias,
                     assignment.*.abstraction,
