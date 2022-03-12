@@ -54,6 +54,7 @@ pub fn main() !void {
             println("Parsing error: {s}", .{err});
             continue :main;
         };
+        defer full_expr.deinit(allocator);
         switch (full_expr) {
             FullExpr.expression => |*expression| try printObj(expression.*),
             FullExpr.command => |*command| {
@@ -65,9 +66,11 @@ pub fn main() !void {
                 }
             },
             FullExpr.assignment => |*assignment| {
+                println("TEST:", .{});
+                try printObj(assignment.*);
                 aliases.putNoClobber(
                     assignment.*.alias,
-                    assignment.*.abstraction,
+                    assignment.*.expression.abstraction,
                 ) catch |err| {
                     println("Creating alias error: {s}", .{err});
                     continue :main;

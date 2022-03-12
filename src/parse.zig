@@ -238,7 +238,7 @@ pub const Expr = union(enum) {
                     allocator
                 );
             },
-            else=> return Self.ParseError.SyntaxError,
+            else => return Self.ParseError.SyntaxError,
         }
     }
 
@@ -261,6 +261,22 @@ pub const Expr = union(enum) {
             ),
             else => false,
         };
+    }
+
+    pub fn deinit(self: *Self, allocator: anytype) void {
+        switch (self.*) {
+            Self.abstraction => |abstraction| {
+                abstraction.expression.deinit(allocator);
+                allocator.destroy(abstraction.expression);
+            },
+            Self.application => |application| {
+                application.abstraction.deinit(allocator);
+                allocator.destroy(application.abstraction);
+                application.argument.deinit(allocator);
+                allocator.destroy(application.argument);
+            },
+            else => {},
+        }
     }
 };
 
@@ -348,5 +364,10 @@ pub const FullExpr = union(enum) {
                 .expression = try Expr.parseTokens(tokens, aliases, allocator),
             };
         }
+    }
+
+    pub fn deinit(self: Self, allocator: anytype) void {
+        if (eql(u8, @tagName(self), "expression"))
+            self.expression.deinit(allocator);
     }
 };
