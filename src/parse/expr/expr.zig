@@ -190,16 +190,14 @@ pub const Expr = union(enum) {
         switch (self.*) {
             Self.abstraction => |abstraction| {
                 abstraction.expression.deinit(allocator);
-                allocator.destroy(abstraction.expression);
             },
             Self.application => |application| {
                 application.abstraction.deinit(allocator);
-                allocator.destroy(application.abstraction);
                 application.argument.deinit(allocator);
-                allocator.destroy(application.argument);
             },
             else => {},
         }
+        allocator.destroy(self);
     }
 };
 

@@ -4,17 +4,20 @@ const StringHashMap = std.StringHashMap;
 
 const parse = @import("./parse.zig");
 
-const LexToken = parse.lexer.LexToken;
-const Cmd = parse.expr.Cmd;
-const Expr = parse.expr.Expr;
-const FullExpr = parse.expr.FullExpr;
+const lexer = parse.lexer;
+const expr = parse.expr;
+
+const LexToken = lexer.LexToken;
+const Cmd = expr.Cmd;
+const Expr = expr.Expr;
+const FullExpr = expr.FullExpr;
 
 pub inline fn println(comptime fmt: []const u8, args: anytype) void {
     std.debug.print(fmt ++ "\n", args);
 }
 
 pub inline fn printObj(object: anytype) !void {
-    try std.json.stringify(object, .{ .whitespace = .{} }, std.io.getStdOut().writer());
+    try std.fmt.formatType(object, "", .{}, std.io.getStdOut().writer(), 150);
     println("", .{});
 }
 

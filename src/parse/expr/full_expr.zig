@@ -10,7 +10,7 @@ const LexToken = @import("../lexer.zig").LexToken;
 pub const FullExpr = union(enum) {
     const Self = @This();
 
-    const ParseError = Expr.ParseError || Cmd.ParseError || Self.Assignment.ParseError;
+    pub const ParseError = Expr.ParseError || Cmd.ParseError || Self.Assignment.ParseError;
     
     pub const Assignment = struct {
         const ParseError = error{
