@@ -22,7 +22,6 @@ const TestOptions = struct {
     }
 
     pub fn expectExpr(self: *TestOptions, input: []const u8, expected: []const u8) !void {
-        var iter = self.aliases.iterator();
         const tokens = try LexToken.parseStr(input, testing.allocator);
         defer LexToken.freeArrayList(tokens);
         const full_expr = try FullExpr.parseLexTokens(tokens.items, &self.*.aliases, testing.allocator);
