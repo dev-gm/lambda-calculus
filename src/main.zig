@@ -69,8 +69,6 @@ pub fn main() !void {
                 }
             },
             FullExpr.assignment => |*assignment| {
-                println("TEST:", .{});
-                try printObj(assignment.*);
                 aliases.putNoClobber(
                     assignment.*.alias,
                     assignment.*.expression.abstraction,
