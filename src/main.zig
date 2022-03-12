@@ -4,10 +4,10 @@ const StringHashMap = std.StringHashMap;
 
 const parse = @import("./parse.zig");
 
-const LexToken = parse.LexToken;
-const Cmd = parse.Cmd;
-const Expr = parse.Expr;
-const FullExpr = parse.FullExpr;
+const LexToken = parse.lexer.LexToken;
+const Cmd = parse.expr.Cmd;
+const Expr = parse.expr.Expr;
+const FullExpr = parse.expr.FullExpr;
 
 pub inline fn println(comptime fmt: []const u8, args: anytype) void {
     std.debug.print(fmt ++ "\n", args);
