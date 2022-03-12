@@ -129,16 +129,15 @@ test "\\\\" {
     };
 }
 
-test "VAR=\\a.\\b.a & VAR" {
-    var options = TestOptions{};
-    defer options.deinit();
-    try options.expectExpr(
-        "VAR=\\a.\\b.a",
-        "FullExpr{ .assignment = Assignment{ .alias = { 86, 65, 82 }, .expression = Expr{ .abstraction = Abstraction{ .argument = 0, .expression = Expr{ .abstraction = Abstraction{ .argument = 1, .expression = Expr{ .binding = 0 } } } } } } }",
-    );
-    try options.expectExpr(
-        "VAR",
-        "FullExpr{ .expression = Expr{ .abstraction = Abstraction{ .argument = 0, .expression = Expr{ .abstraction = Abstraction{ .argument = 1, .expression = Expr{ .binding = 0 } } } } } }",
-    );
-}
-
+//test "VAR=\\a.\\b.a & VAR" {
+//    var options = TestOptions{};
+//    defer options.deinit();
+//    try options.expectExpr(
+//        "VAR=\\a.\\b.a",
+//        "FullExpr{ .assignment = Assignment{ .alias = { 86, 65, 82 }, .expression = Expr{ .abstraction = Abstraction{ .argument = 0, .expression = Expr{ .abstraction = Abstraction{ .argument = 1, .expression = Expr{ .binding = 0 } } } } } } }",
+//    );
+//    try options.expectExpr(
+//        "VAR",
+//        "FullExpr{ .expression = Expr{ .abstraction = Abstraction{ .argument = 0, .expression = Expr{ .abstraction = Abstraction{ .argument = 1, .expression = Expr{ .binding = 0 } } } } } }",
+//    );
+//}
