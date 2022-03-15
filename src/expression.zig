@@ -74,40 +74,18 @@ pub const Expr = union(enum) {
                     break :parse Self.initPtr(Self{
                         .variable = value.index,
                     });
-                } else if (aliases.get(text.*)) |expr| {
+                } else if (aliases.get(text.*)) |abstraction| {
                     const ApplyToMatching = struct {
-                        const Args = struct {};
+                        const Args = struct {
+                            depth: usize = var_names.len,
+                        };
 
                         pub fn matches(other: *Self) bool {
-                            return ApplyToMatching.matches_inner(expr, other);
+                            return eql(u8, @tagName(other.*), "variable");
                         }
 
-                        fn matches_inner(expr: *Self, other: *Self) bool {
-                            if (!eql(u8, @tagName(expr.*), @tagName(other.*)))
-                                return false;
-                            switch (expr.*) {
-                                Self.abstraction => |*abstraction|
-                                    ApplyToMatching.matches_inner(
-                                        abstraction.*,
-                                        other.*.abstraction,
-                                    ),
-                                Self.application => |*application| (
-                                    ApplyToMatching.matches_inner(
-                                        application.*.argument,
-                                        other.*.application.argument,
-                                    ) or
-                                    ApplyToMatching.matches_inner(
-                                        application.*.expression,
-                                        other.*.application.expression,
-                                    )
-                                ),
-                                Self.variable => |*variable|
-                                    variable.* == other.*.variable,
-                            }
-                        }
-
-                        pub fn apply(expr: *Self, args: Args, depth: usize) {
-                            //
+                        pub fn apply(expr: *Self, args: Args) void {
+                            expr.*.variable += args.depth;
                         }
                     };
                     expr.applyToMatching(
@@ -128,18 +106,17 @@ pub const Expr = union(enum) {
         comptime T: type,
         comptime args_T: type,
         args: args_T,
-        depth: usize,
     ) void {
         while (true) {
             if (T.matches(self))
-                T.apply(self, args, depth);
+                T.apply(self, args);
             switch (self.*) {
                 Self.abstraction => |*abstraction|
-                    Self.applyToMatching(abstraction.*, T, args_T, args, depth + 1),
+                    Self.applyToMatching(abstraction.*, T, args_T, args),
                 Self.application => |*application| {
                     Self.applyToMatching(
-                        application.*.argument, T, args_T, args, depth + 1);
-                    Self.applyToMatching(application.*.expression, T, args_T, args, depth + 1);
+                        application.*.argument, T, args_T, args);
+                    Self.applyToMatching(application.*.expression, T, args_T, args);
                 },
                 else => {},
             }
