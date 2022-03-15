@@ -1,6 +1,7 @@
 const std = @import("std");
 const StringHashMap = std.StringHashMap;
 const LinkedList = @import("./linked_list.zig").LinkedList;
+const eql = std.mem.eql;
 
 pub const Expr = union(enum) {
     const Self = @This();
@@ -66,27 +67,83 @@ pub const Expr = union(enum) {
             LexToken.text => |*text| parse: {
                 const pred = struct {
                     fn pred(value: *[]const u8) bool {
-                        return std.mem.eql(u8, value.*, text.*);
+                        return eql(u8, value.*, text.*);
                     }
                 }.pred;
                 if (var_names.find(pred)) |value| {
                     break :parse Self.initPtr(Self{
                         .variable = value.index,
                     });
-                } else if (aliases.get(text.*)) |expr| {}
+                } else if (aliases.get(text.*)) |expr| {
+                    const ApplyToMatching = struct {
+                        const Args = struct {};
+
+                        pub fn matches(other: *Self) bool {
+                            return ApplyToMatching.matches_inner(expr, other);
+                        }
+
+                        fn matches_inner(expr: *Self, other: *Self) bool {
+                            if (!eql(u8, @tagName(expr.*), @tagName(other.*)))
+                                return false;
+                            switch (expr.*) {
+                                Self.abstraction => |*abstraction|
+                                    ApplyToMatching.matches_inner(
+                                        abstraction.*,
+                                        other.*.abstraction,
+                                    ),
+                                Self.application => |*application| (
+                                    ApplyToMatching.matches_inner(
+                                        application.*.argument,
+                                        other.*.application.argument,
+                                    ) or
+                                    ApplyToMatching.matches_inner(
+                                        application.*.expression,
+                                        other.*.application.expression,
+                                    )
+                                ),
+                                Self.variable => |*variable|
+                                    variable.* == other.*.variable,
+                            }
+                        }
+
+                        pub fn apply(expr: *Self, args: Args, depth: usize) {
+                            //
+                        }
+                    };
+                    expr.applyToMatching(
+                        ApplyToMatching,
+                        ApplyToMatching.args,
+                        .{},
+                    );
+                }
             },
             LexToken.lambda => {},
             LexToken.dot => ExprStartsWithDot,
             LexToken.equals => EqualsInExpr,
-        }
+        };
     }
 
-    pub fn applyToMatching(
+    fn applyToMatching(
         self: *Self,
         comptime T: type,
-        args: anytype,
+        comptime args_T: type,
+        args: args_T,
+        depth: usize,
     ) void {
-        current = 
+        while (true) {
+            if (T.matches(self))
+                T.apply(self, args, depth);
+            switch (self.*) {
+                Self.abstraction => |*abstraction|
+                    Self.applyToMatching(abstraction.*, T, args_T, args, depth + 1),
+                Self.application => |*application| {
+                    Self.applyToMatching(
+                        application.*.argument, T, args_T, args, depth + 1);
+                    Self.applyToMatching(application.*.expression, T, args_T, args, depth + 1);
+                },
+                else => {},
+            }
+        }
     }
 
     pub fn clone(self: *Self, allocator: anytype) *Self {

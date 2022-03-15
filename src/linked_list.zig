@@ -9,6 +9,7 @@ pub fn LinkedList(comptime Value: type) type {
         };
 
         head: ?*Self.Item,
+        len: usize = 1,
         allocator: anytype,
 
         pub fn init(allocator: anytype) Self {
@@ -29,12 +30,14 @@ pub fn LinkedList(comptime Value: type) type {
                         item.*.index + 1
                     else 1
             };
+            self.*.len += 1;
         }
 
         pub fn pop(self: *Self) ?*Value {
             if (self.*.head) |*item| {
                 defer self.allocator.destroy(item);
                 self.*.head = item.*.next;
+                self.*.len -= 1;
                 return item.*.value;
             }
             return null;
@@ -60,16 +63,16 @@ pub fn LinkedList(comptime Value: type) type {
             }
         };
 
+        pub fn iterator(self: *Self) Iterator {
+            return Iterator{ .current = self.*.head };
+        }
+
         pub fn find(self: *Self, pred: fn(*Value) bool) ?Iterator.ReturnValue {
             const iter = self.iterator();
             while (iter.next()) |next|
                 if (pred(next.value))
                     return next;
             return null;
-        }
-
-        pub fn iterator(self: *Self) Iterator {
-            return Iterator{ .current = self.*.head };
         }
 
         pub fn deinit(self: *Self) void {
