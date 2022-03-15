@@ -60,11 +60,11 @@ pub fn LinkedList(comptime Value: type) type {
             }
         };
 
-        pub fn find(self: *Self, pred: fn(*Value) bool) ?usize {
+        pub fn find(self: *Self, pred: fn(*Value) bool) ?Iterator.ReturnValue {
             const iter = self.iterator();
             while (iter.next()) |next|
                 if (pred(next.value))
-                    return next.index;
+                    return next;
             return null;
         }
 

@@ -1,4 +1,5 @@
-const StringHashMap = @import("std").StringHashMap;
+const std = @import("std");
+const StringHashMap = std.StringHashMap;
 const LinkedList = @import("./linked_list.zig").LinkedList;
 
 pub const Expr = union(enum) {
@@ -21,22 +22,24 @@ pub const Expr = union(enum) {
     abstraction: *Self,
     application: Self.Application,
 
-    pub fn parseTokens(
-        tokens: []const LexToken,
-        allocator: anytype,
-    ) Self.ParseError!*Self {
-        var var_names = LinkedList([]const u8).init(allocator);
-        defer var_names.deinit();
-        return Self.parseTokensWithVarNames(tokens, var_names);
-    }
-
     fn initPtr(self: Self, allocator: anytype) Self.AllocationError!*Self {
         const ptr = try allocator.create(Self);
         ptr.* = self;
         return ptr;
     }
 
+    pub fn parseTokens(
+        aliases: *StringHashMap(*Self),
+        tokens: []const LexToken,
+        allocator: anytype,
+    ) Self.ParseError!*Self {
+        var var_names = LinkedList([]const u8).init(allocator);
+        defer var_names.deinit();
+        return Self.parseTokensWithVarNames(aliases, tokens, var_names);
+    }
+
     fn parseTokensWithVarNames(
+        aliases: *StringHashMap(*Self),
         tokens: []const LexToken,
         var_names: LinkedList([]const u8),
     ) Self.ParseError!*Self {
@@ -60,13 +63,55 @@ pub const Expr = union(enum) {
                     }, allocator);
                 }
             },
-            LexToken.text => |*text| {
-                const pred = struct {}; // TODO
-                // if (var_names.iter().find())
+            LexToken.text => |*text| parse: {
+                const pred = struct {
+                    fn pred(value: *[]const u8) bool {
+                        return std.mem.eql(u8, value.*, text.*);
+                    }
+                }.pred;
+                if (var_names.find(pred)) |value| {
+                    break :parse Self.initPtr(Self{
+                        .variable = value.index,
+                    });
+                } else if (aliases.get(text.*)) |expr| {}
             },
             LexToken.lambda => {},
             LexToken.dot => ExprStartsWithDot,
             LexToken.equals => EqualsInExpr,
         }
+    }
+
+    pub fn applyToMatching(
+        self: *Self,
+        comptime T: type,
+        args: anytype,
+    ) void {
+        current = 
+    }
+
+    pub fn clone(self: *Self, allocator: anytype) *Self {
+        const new_expr = allocator.create(Self);
+        new_expr.* = self.*;
+        switch (new_expr.*) {
+            Self.abstraction => |*abstraction| {
+                new_expr.* = Self{
+                    .abstraction = abstraction.*.clone(),
+                };
+            },
+            Self.application => |*application| {
+                new_expr.* = Self{
+                    .application = Self.Application{
+                        .abstraction = application.*.abstraction.clone(),
+                        .argument = application.*.argument.clone(),
+                    },
+                };
+            },
+            Self.variable => |*variable| {
+                new_expr.* = Self{
+                    .variable = variable.*,
+                };
+            }
+        }
+        return new_expr;
     }
 };
