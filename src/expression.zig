@@ -11,6 +11,7 @@ pub const Expr = union(enum) {
     pub const ParseError = error{
         ExprStartsWithDot,
         EqualsInExpr,
+        NoSuchVarOrAlias,
     } || AllocationError;
 
 
@@ -44,25 +45,15 @@ pub const Expr = union(enum) {
         tokens: []const LexToken,
         var_names: LinkedList([]const u8),
     ) Self.ParseError!*Self {
-        return switch (tokens[0]) {
+        const expr = switch (tokens[0]) {
             LexToken.group => |*group| parse: {
-                const group_expr = Self.parseTokensWithVarNames(
-                    group.*,
-                    var_names,
-                );
-                if (tokens.len == 1) {
-                    break :parse group_expr;
-                } else {
-                    break :parse Self.initPtr(Self{
-                        .application = Self.Application{
-                            .abstraction = group_expr,
-                            .argument = Self.parseTokensWithVarNames(
-                                tokens[1..],
-                                var_names,
-                            ),
-                        },
-                    }, allocator);
-                }
+                break :parse .{
+                    Self.parseTokensWithVarNames(
+                        group.*,
+                        var_names,
+                    ),
+                    1,
+                };
             },
             LexToken.text => |*text| parse: {
                 const pred = struct {
@@ -88,17 +79,23 @@ pub const Expr = union(enum) {
                             expr.*.variable += args.depth;
                         }
                     };
-                    expr.applyToMatching(
+                    abstraction.applyToMatching(
                         ApplyToMatching,
                         ApplyToMatching.args,
                         .{},
                     );
+                    break :parse Self.initPtr(Self{
+                        .abstraction = abstraction,
+                    });
+                } else {
+                    return Self.ParseError.NoSuchVarOrAlias;
                 }
             },
             LexToken.lambda => {},
             LexToken.dot => ExprStartsWithDot,
             LexToken.equals => EqualsInExpr,
         };
+        if (tokens)
     }
 
     fn applyToMatching(
