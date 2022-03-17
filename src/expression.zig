@@ -16,8 +16,12 @@ pub const Expr = union(enum) {
 
 
     pub const Application = struct {
+        const ReductionError = error{};
+
         abstraction: *Self,
         argument: *Self,
+
+        fn betaReduce(self: *Self.Application) ReductionError!void {}
     };
 
     variable: usize, // starts at 1, increases with expr depth
@@ -107,7 +111,7 @@ pub const Expr = union(enum) {
                         expr: {
                             try var_names.push(tokens[1].text);
                             defer _ = var_names.pop();
-                            const ret = Self.initPtr(Self{
+                            break :expr Self.initPtr(Self{
                                 .abstraction = Self.parseTokensWithVarNames(
                                     aliases,
                                     tokens[3..],
@@ -122,7 +126,22 @@ pub const Expr = union(enum) {
             LexToken.dot => ExprStartsWithDot,
             LexToken.equals => EqualsInExpr,
         };
-        if (tokens)
+        return
+            if (
+                result[1] != null and
+                result[1].? < tokens.len
+            )
+                Self.initPtr(Self{
+                    .application = Self.Application{
+                        .abstraction = result[0],
+                        .argument = Self.parseTokensWithVarNames(
+                            aliases,
+                            tokens[result[1].?..],
+                            var_names,
+                        ),
+                    },
+                }, allocator)
+            else result[0];
     }
 
     fn applyToMatching(
@@ -144,6 +163,14 @@ pub const Expr = union(enum) {
                 },
                 else => {},
             }
+        }
+    }
+
+    const ReductionError =  error{} || Self.Abstraction.ReductionError;
+
+    pub fn reduce(self: *Self) ReductionError!void {
+        switch (self.*) {
+            Self.application => |*application|
         }
     }
 
