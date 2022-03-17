@@ -45,7 +45,7 @@ pub const Expr = union(enum) {
         tokens: []const LexToken,
         var_names: LinkedList([]const u8),
     ) Self.ParseError!*Self {
-        const expr = switch (tokens[0]) {
+        const result = switch (tokens[0]) {
             LexToken.group => |*group| parse: {
                 break :parse .{
                     Self.parseTokensWithVarNames(
@@ -62,9 +62,12 @@ pub const Expr = union(enum) {
                     }
                 }.pred;
                 if (var_names.find(pred)) |value| {
-                    break :parse Self.initPtr(Self{
-                        .variable = value.index,
-                    });
+                    break :parse .{
+                        Self.initPtr(Self{
+                            .variable = value.index,
+                        }),
+                        1,
+                };
                 } else if (aliases.get(text.*)) |abstraction| {
                     const ApplyToMatching = struct {
                         const Args = struct {
@@ -84,14 +87,38 @@ pub const Expr = union(enum) {
                         ApplyToMatching.args,
                         .{},
                     );
-                    break :parse Self.initPtr(Self{
-                        .abstraction = abstraction,
-                    });
+                    break :parse .{
+                        Self.initPtr(Self{
+                            .abstraction = abstraction,
+                        }),
+                        1,
+                    };
                 } else {
                     return Self.ParseError.NoSuchVarOrAlias;
                 }
             },
-            LexToken.lambda => {},
+            LexToken.lambda => {
+                if (
+                    tokens.len < 4 or
+                    eql(u8, @tagName(tokens[1]), "text") or
+                    eql(u8, @tagName(tokens[2]), "dot")
+                ) {
+                    break :parse .{
+                        expr: {
+                            try var_names.push(tokens[1].text);
+                            defer _ = var_names.pop();
+                            const ret = Self.initPtr(Self{
+                                .abstraction = Self.parseTokensWithVarNames(
+                                    aliases,
+                                    tokens[3..],
+                                    var_names,
+                                ),
+                            });
+                        },
+                        null,
+                    };
+                }
+            },
             LexToken.dot => ExprStartsWithDot,
             LexToken.equals => EqualsInExpr,
         };
