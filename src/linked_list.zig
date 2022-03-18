@@ -10,11 +10,17 @@ pub fn LinkedList(comptime Value: type) type {
 
         head: ?*Self.Item,
         len: usize = 1,
+        first_index: usize,
         allocator: anytype,
 
-        pub fn init(allocator: anytype) Self {
+        const InitOptions = struct {
+            first_index: usize = 0,
+        };
+
+        pub fn init(allocator: anytype, options: InitOptions) Self {
             return Self{
                 .head = null,
+                .first_index = options.first_index,
                 .allocator = allocator,
             };
         }

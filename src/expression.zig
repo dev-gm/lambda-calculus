@@ -16,12 +16,28 @@ pub const Expr = union(enum) {
 
 
     pub const Application = struct {
-        const ReductionError = error{};
-
-        abstraction: *Self,
+        abstraction: *Self, // can be anything
         argument: *Self,
 
-        fn betaReduce(self: *Self.Application) ReductionError!void {}
+        pub fn betaReduce(self: *Self.Application, var_offset: usize, allocator: anytype) void {
+            self.*.abstraction.betaReduceExpr(self.*.argument, var_offset, allocator);
+        }
+
+        // replace all instances of abstraction's var with argument. returns abstraction's inner expr
+        fn betaReduceExpr(self: *Self, replace: *Self, var_offset: usize, allocator: anytype) void {
+            defer replace.deinit(allocator);
+            switch (self.*) {
+                variable => |*variable|
+                    if (variable.* - var_offset == 1)
+                        self.* = replace.clone(allocator).*,
+                abstraction => |*abstraction|
+                    abstraction.*.betaReduceExpr(replace, var_offset + 1),
+                application => |*application| {
+                    application.*.abstraction.betaReduceExpr(replace, var_offset);
+                    application.*.argument.betaReduceExpr(replace, var_offset);
+                },
+            }
+        }
     };
 
     variable: usize, // starts at 1, increases with expr depth
@@ -39,7 +55,7 @@ pub const Expr = union(enum) {
         tokens: []const LexToken,
         allocator: anytype,
     ) Self.ParseError!*Self {
-        var var_names = LinkedList([]const u8).init(allocator);
+        var var_names = LinkedList([]const u8).init(allocator, .{ .first_index = 1 });
         defer var_names.deinit();
         return Self.parseTokensWithVarNames(aliases, tokens, var_names);
     }
@@ -168,9 +184,13 @@ pub const Expr = union(enum) {
 
     const ReductionError =  error{} || Self.Abstraction.ReductionError;
 
-    pub fn reduce(self: *Self) ReductionError!void {
+    pub fn reduce(self: *Self) void {
         switch (self.*) {
+            Self.abstraction => |*abstraction|
+                abstraction.*.reduce(),
             Self.application => |*application|
+                application.*.betaReduce(),
+            else => {},
         }
     }
 
@@ -198,5 +218,18 @@ pub const Expr = union(enum) {
             }
         }
         return new_expr;
+    }
+
+    pub fn deinit(self: *Self, allocator: anytype) void {
+        defer allocator.destroy(self);
+        switch (self.*) {
+            Self.abstraction => |*abstraction|
+                abstraction.*.deinit(),
+            Self.application => |*application| {
+                application.*.abstraction.deinit();
+                application.*.argument.deinit();
+            },
+            else => {},
+        }
     }
 };
