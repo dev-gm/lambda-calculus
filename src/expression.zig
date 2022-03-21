@@ -1,18 +1,18 @@
 const std = @import("std");
 const StringHashMap = std.StringHashMap;
-const LinkedList = @import("./linked_list.zig").LinkedList;
 const eql = std.mem.eql;
+
+const LinkedList = @import("./linked_list.zig").LinkedList;
+const LexToken = @import("./lexer.zig").LexToken;
 
 pub const Expr = union(enum) {
     const Self = @This();
-
-    const AllocationError = error{OutOfMemory};
 
     pub const ParseError = error{
         ExprStartsWithDot,
         EqualsInExpr,
         NoSuchVarOrAlias,
-    } || AllocationError;
+    } || std.mem.AllocationError;
 
 
     pub const Application = struct {
@@ -27,12 +27,14 @@ pub const Expr = union(enum) {
         fn betaReduceExpr(self: *Self, replace: *Self, var_offset: usize, allocator: anytype) void {
             defer replace.deinit(allocator);
             switch (self.*) {
-                variable => |*variable|
+                Self.variable => |*variable| {
                     if (variable.* - var_offset == 1)
-                        self.* = replace.clone(allocator).*,
-                abstraction => |*abstraction|
-                    abstraction.*.betaReduceExpr(replace, var_offset + 1),
-                application => |*application| {
+                        self.* = replace.clone(allocator).*;
+                },
+                Self.abstraction => |*abstraction| {
+                    abstraction.*.betaReduceExpr(replace, var_offset + 1);
+                },
+                Self.application => |*application| {
                     application.*.abstraction.betaReduceExpr(replace, var_offset);
                     application.*.argument.betaReduceExpr(replace, var_offset);
                 },
@@ -57,13 +59,14 @@ pub const Expr = union(enum) {
     ) Self.ParseError!*Self {
         var var_names = LinkedList([]const u8).init(allocator, .{ .first_index = 1 });
         defer var_names.deinit();
-        return Self.parseTokensWithVarNames(aliases, tokens, var_names);
+        return Self.parseTokensWithVarNames(aliases, tokens, var_names, allocator);
     }
 
     fn parseTokensWithVarNames(
         aliases: *StringHashMap(*Self),
         tokens: []const LexToken,
         var_names: LinkedList([]const u8),
+        allocator: anytype,
     ) Self.ParseError!*Self {
         const result = switch (tokens[0]) {
             LexToken.group => |*group| parse: {
@@ -117,7 +120,7 @@ pub const Expr = union(enum) {
                     return Self.ParseError.NoSuchVarOrAlias;
                 }
             },
-            LexToken.lambda => {
+            LexToken.lambda => parse: {
                 if (
                     tokens.len < 4 or
                     eql(u8, @tagName(tokens[1]), "text") or
@@ -139,8 +142,8 @@ pub const Expr = union(enum) {
                     };
                 }
             },
-            LexToken.dot => ExprStartsWithDot,
-            LexToken.equals => EqualsInExpr,
+            LexToken.dot => Self.ParseError.ExprStartsWithDot,
+            LexToken.equals => Self.ParseError.EqualsInExpr,
         };
         return
             if (

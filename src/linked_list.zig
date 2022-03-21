@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub fn LinkedList(comptime Value: type) type {
     return struct {
         const Self = @This();
@@ -11,7 +13,8 @@ pub fn LinkedList(comptime Value: type) type {
         head: ?*Self.Item,
         len: usize = 1,
         first_index: usize,
-        allocator: anytype,
+        comptime Allocator: type = std.mem.Allocator,
+        allocator: Self.Allocator,
 
         const InitOptions = struct {
             first_index: usize = 0,
@@ -21,6 +24,7 @@ pub fn LinkedList(comptime Value: type) type {
             return Self{
                 .head = null,
                 .first_index = options.first_index,
+                .Allocator = @TypeOf(allocator),
                 .allocator = allocator,
             };
         }
