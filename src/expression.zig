@@ -12,8 +12,8 @@ pub const Expr = union(enum) {
         ExprStartsWithDot,
         EqualsInExpr,
         NoSuchVarOrAlias,
-    } || std.mem.AllocationError;
-
+        OutOfMemory,
+    };
 
     pub const Application = struct {
         abstraction: *Self, // can be anything

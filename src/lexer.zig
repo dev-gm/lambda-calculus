@@ -5,10 +5,10 @@ fn isWhitespace(ch: u8) bool {
     return ch == ' ' or ch == '\t';
 }
 
-pub const LexToken = struct {
+pub const LexToken = union(enum) {
     const Self = @This();
 
-    pub const ParseError = std.mem.AllocationError;
+    pub const ParseError = error{OutOfMemory};
 
     group: ArrayList(Self),
     text: []const u8,
@@ -21,7 +21,7 @@ pub const LexToken = struct {
         allocator: anytype
     ) Self.ParseError!ArrayList(Self) {
         var tokens = ArrayList(Self).init(allocator);
-        Self.parseStringIntoArrayList(&tokens, string, true);
+        try Self.parseStringIntoArrayList(&tokens, string, true, allocator);
         return tokens;
     }
 
@@ -29,10 +29,11 @@ pub const LexToken = struct {
         tokens: *ArrayList(Self),
         string: []const u8,
         first: bool,
+        allocator: anytype,
     ) Self.ParseError!void {
         var text_start: ?usize = null;
         var prev_was_text = false;
-        var i = 0;
+        var i: u64 = 0;
         while (i < string.len) : (i += 1) {
             if (!prev_was_text) {
                 if (text_start) |start| {
@@ -43,10 +44,10 @@ pub const LexToken = struct {
             prev_was_text = false;
             switch (string[i]) {
                 '(' => try tokens.*.append(Self{
-                    .group = Self.parseStringIntoArrayList(tokens, string[i+1..], false)
+                    .group = try Self.parseString(string[i+1..], allocator)
                 }),
                 ')' => return,
-                "\\" => try tokens.*.append(Self{ .lambda = 0 }),
+                '\\' => try tokens.*.append(Self{ .lambda = 0 }),
                 '.' => {
                     try tokens.*.append(Self{ .dot = 0 });
                     if (first and i == 0) {
@@ -55,7 +56,7 @@ pub const LexToken = struct {
                     }
                 },
                 '=' => try tokens.*.append(Self{ .equals = 0 }),
-                ' ' | '\t' => continue,
+                ' ', '\t' => continue,
                 else => {
                     if (text_start == null)
                         text_start = i;

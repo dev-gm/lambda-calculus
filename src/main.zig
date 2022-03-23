@@ -23,7 +23,7 @@ const FullExpr = union(enum) {
     assignment: Self.Assignment,
 
     pub fn parseTokens(
-        aliases: *StringHashMap(*Self),
+        aliases: *StringHashMap(*Expr),
         tokens: []const LexToken,
         allocator: anytype,
     ) Self.ParseError!Self {
@@ -34,8 +34,8 @@ const FullExpr = union(enum) {
         ) {
             return Self{
                 .assignment = Self.Assignment{
-                    .alias = tokens[0],
-                    .abstraction = Expr.parseTokens(aliases, tokens[2..], allocator),
+                    .alias = tokens[0].text,
+                    .abstraction = try Expr.parseTokens(aliases, tokens[2..], allocator),
                 },
             };
         } else if (
@@ -52,19 +52,38 @@ const FullExpr = union(enum) {
             };
         }
     }
+
+    pub fn deinit(self: *Self, allocator: anytype) void {
+        switch (self.*) {
+            Self.expression => |*expr| expr.*.deinit(allocator),
+            Self.assignment => |*assignment| {
+                assignment.*.expression.deinit(allocator);
+            },
+            else => {},
+        }
+    }
 };
 
 pub fn main() anyerror!void {
     const stdin = std.io.getStdIn();
     const stdin_reader = stdin.reader();
-    const gpa = std.heap.GeneralPurposeAllocator(.{});
-    defer gpa.deinit();
-    var allocator = gpa.allocator();
-    var buffer: [1024]u8;
+    const stdout = std.io.getStdOut();
+    const stdout_writer = stdout.writer();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    var aliases = std.StringHashMap(*Expr).init(allocator);
+    defer aliases.clearAndFree();
+    var buffer: [1024]u8 = undefined;
+    _ = try stdout_writer.write(">");
     while (
-        try stdin_reader.readUntilDelimiterOrEof(buffer, '\n')
+        try stdin_reader.readUntilDelimiterOrEof(&buffer, '\n')
     ) |line| {
-        const tokens = LexToken.parseString(line, allocator);
-        defer LexToken.deinit(tokens);
+        const tokens = try LexToken.parseString(line, allocator);
+        defer LexToken.deinit(&tokens);
+        const full_expr = try FullExpr.parseTokens(&aliases, tokens.items, allocator);
+        defer full_expr.deinit();
+        try std.json.stringify(full_expr, .{ .whitespace = .{} }, stdout_writer);
+        _ = try stdout_writer.write(">");
     }
 }

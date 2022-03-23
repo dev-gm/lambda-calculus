@@ -1,7 +1,7 @@
 pub const Cmd = union(enum) {
     const Self = @This();
 
-    const ParseError = error{
+    pub const ParseError = error{
         EmptyCommand,
         InvalidCommand,
         NoReadOrWriteValue,
