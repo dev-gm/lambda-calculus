@@ -21,9 +21,12 @@ pub const Cmd = union(enum) {
             'r', 'w' => parse: {
                 if (string.len == 1)
                     break :parse Self.ParseError.NoReadOrWriteValue;
-                const body = for (string[1..]) |char, index| body: {
-                    if (char != ' ' and char != '\t' and char != '\n')
-                        break :body string[index+2..];
+                const body = body: {
+                    for (string[1..]) |char, index| {
+                        if (char != ' ' and char != '\t' and char != '\n')
+                            break :body string[index+2..];
+                    }
+                    break :body "";
                 };
                 if (body.len == 0) {
                     break :parse Self.ParseError.NoReadOrWriteValue;

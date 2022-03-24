@@ -15,7 +15,7 @@ const FullExpr = union(enum) {
 
     const Assignment = struct {
         alias: []const u8,
-        abstraction: *Expr,
+        abstraction: *const Expr,
     };
 
     expression: *Expr,
@@ -23,16 +23,16 @@ const FullExpr = union(enum) {
     assignment: Self.Assignment,
 
     pub fn parseTokens(
-        aliases: *StringHashMap(*Expr),
+        aliases: *const StringHashMap(*const Expr),
         tokens: []const LexToken,
         allocator: anytype,
     ) Self.ParseError!Self {
-        if (
+        return if (
             tokens.len > 2 and
             eql(u8, @tagName(tokens[0]), "text") and
             eql(u8, @tagName(tokens[1]), "equals")
-        ) {
-            return Self{
+        ) tokens: {
+            break :tokens Self{
                 .assignment = Self.Assignment{
                     .alias = tokens[0].text,
                     .abstraction = try Expr.parseTokens(aliases, tokens[2..], allocator),
@@ -42,22 +42,22 @@ const FullExpr = union(enum) {
             tokens.len == 2 and
             eql(u8, @tagName(tokens[0]), "dot") and
             eql(u8, @tagName(tokens[1]), "text")
-        ) {
-            return Self{
-                .command = Cmd.parseString(tokens[1])
+        ) tokens: {
+            break :tokens Self{
+                .command = try Cmd.parseString(tokens[1].text),
             };
-        } else {
-            return Self{
-                .expression = Expr.parseTokens(aliases, tokens, allocator)
+        } else tokens: {
+            break :tokens Self{
+                .expression = try Expr.parseTokens(aliases, tokens, allocator),
             };
-        }
+        };
     }
 
-    pub fn deinit(self: *Self, allocator: anytype) void {
+    pub fn deinit(self: *const Self, allocator: anytype) void {
         switch (self.*) {
             Self.expression => |*expr| expr.*.deinit(allocator),
             Self.assignment => |*assignment| {
-                assignment.*.expression.deinit(allocator);
+                assignment.*.abstraction.deinit(allocator);
             },
             else => {},
         }
@@ -72,17 +72,17 @@ pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var aliases = std.StringHashMap(*Expr).init(allocator);
+    var aliases = std.StringHashMap(*const Expr).init(allocator);
     defer aliases.clearAndFree();
     var buffer: [1024]u8 = undefined;
     _ = try stdout_writer.write(">");
     while (
         try stdin_reader.readUntilDelimiterOrEof(&buffer, '\n')
     ) |line| {
-        const tokens = try LexToken.parseString(line, allocator);
-        defer LexToken.deinit(&tokens);
+        var tokens = try LexToken.parseString(line, allocator);
+        defer LexToken.deinit(&tokens, allocator);
         const full_expr = try FullExpr.parseTokens(&aliases, tokens.items, allocator);
-        defer full_expr.deinit();
+        defer full_expr.deinit(allocator);
         try std.json.stringify(full_expr, .{ .whitespace = .{} }, stdout_writer);
         _ = try stdout_writer.write(">");
     }

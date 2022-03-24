@@ -13,26 +13,23 @@ pub fn LinkedList(comptime Value: type) type {
         head: ?*Self.Item,
         len: usize = 1,
         first_index: usize,
-        comptime Allocator: type = std.mem.Allocator,
-        allocator: Self.Allocator,
 
         const InitOptions = struct {
             first_index: usize = 0,
         };
 
-        pub fn init(allocator: anytype, options: InitOptions) Self {
+        pub fn init(options: InitOptions) Self {
             return Self{
                 .head = null,
                 .first_index = options.first_index,
-                .Allocator = @TypeOf(allocator),
-                .allocator = allocator,
             };
         }
     
-        pub fn push(self: *Self, value: Value) !void {
-            const value_ptr = try self.allocator.create(Value);
+        pub fn push(self: *Self, value: Value, allocator: anytype) !void {
+            const value_ptr = try allocator.create(Value);
             value_ptr.* = value;
-            self.*.head = Self.Item{
+            const head_ptr = try allocator.create(Self.Item);
+            head_ptr.* = Self.Item{
                 .next = self.*.head,
                 .value = value_ptr,
                 .index =
@@ -40,12 +37,13 @@ pub fn LinkedList(comptime Value: type) type {
                         item.*.index + 1
                     else 1
             };
+            self.*.head = head_ptr;
             self.*.len += 1;
         }
 
-        pub fn pop(self: *Self) ?*Value {
+        pub fn pop(self: *Self, allocator: anytype) ?*Value {
             if (self.*.head) |*item| {
-                defer self.allocator.destroy(item);
+                defer allocator.destroy(item);
                 self.*.head = item.*.next;
                 self.*.len -= 1;
                 return item.*.value;
@@ -77,21 +75,30 @@ pub fn LinkedList(comptime Value: type) type {
             return Iterator{ .current = self.*.head };
         }
 
-        pub fn find(self: *Self, pred: fn(*Value) bool) ?Iterator.ReturnValue {
-            const iter = self.iterator();
+        pub fn find_args(
+            self: *Self,
+            comptime Args: type,
+            pred: fn(*Value, Args) bool,
+            args: Args
+        ) ?Iterator.ReturnValue {
+            var iter = self.iterator();
             while (iter.next()) |next|
-                if (pred(next.value))
+                if (pred(next.value, args))
                     return next;
             return null;
         }
 
-        pub fn deinit(self: *Self) void {
-            defer {
-                self.allocator.destroy(self);
-                self.allocator.deinit();
-            }
-            while (self.pop()) |*value|
-                self.allocator.destroy(value);
+        pub fn find(self: *Self, pred: fn(*Value) bool) ?Iterator.ReturnValue {
+            var iter = self.iterator();
+            return while (iter.next()) |next| iter: {
+                if (pred(next.value))
+                    break :iter next;
+            } else null;
+        }
+
+        pub fn deinit(self: Self, allocator: anytype) void {
+            while (self.pop(allocator)) |*value|
+                allocator.destroy(value);
         }
     };
 }

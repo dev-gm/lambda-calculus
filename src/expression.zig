@@ -8,12 +8,14 @@ const LexToken = @import("./lexer.zig").LexToken;
 pub const Expr = union(enum) {
     const Self = @This();
 
+    const AllocationError = error{OutOfMemory};
+
     pub const ParseError = error{
         ExprStartsWithDot,
         EqualsInExpr,
         NoSuchVarOrAlias,
-        OutOfMemory,
-    };
+        AbstractionSyntaxError,
+    } || AllocationError;
 
     pub const Application = struct {
         abstraction: *Self, // can be anything
@@ -29,7 +31,7 @@ pub const Expr = union(enum) {
             switch (self.*) {
                 Self.variable => |*variable| {
                     if (variable.* - var_offset == 1)
-                        self.* = replace.clone(allocator).*;
+                        self.* = try replace.clone(allocator).*;
                 },
                 Self.abstraction => |*abstraction| {
                     abstraction.*.betaReduceExpr(replace, var_offset + 1);
@@ -53,48 +55,65 @@ pub const Expr = union(enum) {
     }
 
     pub fn parseTokens(
-        aliases: *StringHashMap(*Self),
+        aliases: *const StringHashMap(*const Self),
         tokens: []const LexToken,
         allocator: anytype,
     ) Self.ParseError!*Self {
-        var var_names = LinkedList([]const u8).init(allocator, .{ .first_index = 1 });
-        defer var_names.deinit();
-        return Self.parseTokensWithVarNames(aliases, tokens, var_names, allocator);
+        var var_names = LinkedList([]const u8).init(.{ .first_index = 1 });
+        return Self.parseTokensWithVarNames(aliases, tokens, &var_names, allocator);
     }
 
     fn parseTokensWithVarNames(
-        aliases: *StringHashMap(*Self),
+        aliases: *const StringHashMap(*const Self),
         tokens: []const LexToken,
-        var_names: LinkedList([]const u8),
+        var_names: *LinkedList([]const u8),
         allocator: anytype,
     ) Self.ParseError!*Self {
-        const result = switch (tokens[0]) {
+        const Result = struct {
+            expression: *Self,
+            continue_index: ?usize,
+        };
+        const result = try switch (tokens[0]) {
             LexToken.group => |*group| parse: {
-                break :parse .{
-                    Self.parseTokensWithVarNames(
-                        group.*,
-                        var_names,
-                    ),
-                    1,
+                break :parse Result{
+                    .expression =
+                        try Self.parseTokensWithVarNames(
+                            aliases,
+                            group.*.items,
+                            var_names,
+                            allocator,
+                        ),
+                    .continue_index = 1,
                 };
             },
             LexToken.text => |*text| parse: {
-                const pred = struct {
-                    fn pred(value: *[]const u8) bool {
-                        return eql(u8, value.*, text.*);
+                const Pred = struct {
+                    const Args = struct {
+                        text: []const u8,
+                    };
+
+                    fn pred(value: *[]const u8, args: Args) bool {
+                        return eql(u8, value.*, args.text);
                     }
-                }.pred;
-                if (var_names.find(pred)) |value| {
-                    break :parse .{
-                        Self.initPtr(Self{
-                            .variable = value.index,
-                        }),
-                        1,
+                };
+                if (
+                    var_names.find_args(
+                        Pred.Args,
+                        Pred.pred,
+                        Pred.Args{ .text = text.* }
+                    )
+                ) |value| {
+                    break :parse Result{
+                        .expression =
+                            try Self.initPtr(Self{
+                                .variable = value.index,
+                            }, allocator),
+                        .continue_index = 1,
                 };
                 } else if (aliases.get(text.*)) |abstraction| {
                     const ApplyToMatching = struct {
                         const Args = struct {
-                            depth: usize = var_names.len,
+                            depth: usize,
                         };
 
                         pub fn matches(other: *Self) bool {
@@ -105,62 +124,67 @@ pub const Expr = union(enum) {
                             expr.*.variable += args.depth;
                         }
                     };
-                    abstraction.applyToMatching(
+                    const cloned_abstraction = try abstraction.clone(allocator);
+                    cloned_abstraction.applyToMatching(
                         ApplyToMatching,
-                        ApplyToMatching.args,
-                        .{},
+                        ApplyToMatching.Args,
+                        ApplyToMatching.Args{ .depth = var_names.*.len },
                     );
-                    break :parse .{
-                        Self.initPtr(Self{
-                            .abstraction = abstraction,
-                        }),
-                        1,
+                    break :parse Result{
+                        .expression = 
+                            try Self.initPtr(Self{
+                                .abstraction = cloned_abstraction
+                            }, allocator),
+                        .continue_index = 1,
                     };
                 } else {
                     return Self.ParseError.NoSuchVarOrAlias;
                 }
             },
             LexToken.lambda => parse: {
-                if (
+                break :parse if (
                     tokens.len < 4 or
                     eql(u8, @tagName(tokens[1]), "text") or
                     eql(u8, @tagName(tokens[2]), "dot")
-                ) {
-                    break :parse .{
-                        expr: {
-                            try var_names.push(tokens[1].text);
-                            defer _ = var_names.pop();
-                            break :expr Self.initPtr(Self{
-                                .abstraction = Self.parseTokensWithVarNames(
+                )
+                    Result{
+                        .expression = expr: {
+                            try var_names.push(tokens[1].text, allocator);
+                            defer _ = var_names.pop(allocator);
+                            break :expr try Self.initPtr(Self{
+                                .abstraction = try Self.parseTokensWithVarNames(
                                     aliases,
                                     tokens[3..],
                                     var_names,
+                                    allocator,
                                 ),
-                            });
+                            }, allocator);
                         },
-                        null,
-                    };
-                }
+                        .continue_index = null,
+                    }
+                else
+                    Self.ParseError.AbstractionSyntaxError;
             },
             LexToken.dot => Self.ParseError.ExprStartsWithDot,
             LexToken.equals => Self.ParseError.EqualsInExpr,
         };
         return
             if (
-                result[1] != null and
-                result[1].? < tokens.len
+                result.continue_index != null and
+                result.continue_index.? < tokens.len
             )
                 Self.initPtr(Self{
                     .application = Self.Application{
-                        .abstraction = result[0],
-                        .argument = Self.parseTokensWithVarNames(
+                        .abstraction = result.expression,
+                        .argument = try Self.parseTokensWithVarNames(
                             aliases,
-                            tokens[result[1].?..],
+                            tokens[result.continue_index.?..],
                             var_names,
+                            allocator,
                         ),
                     },
                 }, allocator)
-            else result[0];
+            else result.expression;
     }
 
     fn applyToMatching(
@@ -178,7 +202,7 @@ pub const Expr = union(enum) {
                 Self.application => |*application| {
                     Self.applyToMatching(
                         application.*.argument, T, args_T, args);
-                    Self.applyToMatching(application.*.expression, T, args_T, args);
+                    Self.applyToMatching(application.*.abstraction, T, args_T, args);
                 },
                 else => {},
             }
@@ -197,20 +221,20 @@ pub const Expr = union(enum) {
         }
     }
 
-    pub fn clone(self: *Self, allocator: anytype) *Self {
-        const new_expr = allocator.create(Self);
+    pub fn clone(self: *const Self, allocator: anytype) Self.AllocationError!*Self {
+        const new_expr = try allocator.create(Self);
         new_expr.* = self.*;
         switch (new_expr.*) {
             Self.abstraction => |*abstraction| {
                 new_expr.* = Self{
-                    .abstraction = abstraction.*.clone(),
+                    .abstraction = try abstraction.*.clone(allocator),
                 };
             },
             Self.application => |*application| {
                 new_expr.* = Self{
                     .application = Self.Application{
-                        .abstraction = application.*.abstraction.clone(),
-                        .argument = application.*.argument.clone(),
+                        .abstraction = try application.*.abstraction.clone(allocator),
+                        .argument = try application.*.argument.clone(allocator),
                     },
                 };
             },
@@ -223,14 +247,14 @@ pub const Expr = union(enum) {
         return new_expr;
     }
 
-    pub fn deinit(self: *Self, allocator: anytype) void {
+    pub fn deinit(self: *const Self, allocator: anytype) void {
         defer allocator.destroy(self);
         switch (self.*) {
             Self.abstraction => |*abstraction|
-                abstraction.*.deinit(),
+                abstraction.*.deinit(allocator),
             Self.application => |*application| {
-                application.*.abstraction.deinit();
-                application.*.argument.deinit();
+                application.*.abstraction.deinit(allocator);
+                application.*.argument.deinit(allocator);
             },
             else => {},
         }

@@ -66,12 +66,14 @@ pub const LexToken = union(enum) {
         }
     }
 
-    pub fn deinit(self: *ArrayList(Self), allocator: anytype) void {
+    pub fn deinit(self: *const ArrayList(Self), allocator: anytype) void {
         defer self.deinit();
-        for (self) |item| {
+        for (self.*.items) |item| {
             switch (item) {
-                Self.group => |*group| Self.deinit(group.*, allocator),
-                Self.text => |*text| allocator.destroy(text.*),
+                Self.group => |*group| {
+                    defer allocator.destroy(group);
+                    Self.deinit(group, allocator);
+                },
                 else => {},
             }
         }
